@@ -11,6 +11,7 @@ const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
 const PUBLIC_NEARBY_QUERIES = ["공원", "정원", "한강공원", "유적지", "박물관", "어린이박물관"];
+const PHOTO_PLAY_NEARBY_QUERIES = ["인생네컷", "포토이즘"];
 const CAFE_NEARBY_QUERIES = ["키즈카페", "유아 동반 카페"];
 const RESTAURANT_NEARBY_QUERIES = ["가족 식당", "키즈 메뉴 식당"];
 const EVENT_NEARBY_QUERIES = ["어린이 공연", "가족 축제", "키즈 행사"];
@@ -280,19 +281,19 @@ function getNearbyQueries() {
     baseQueries.push(...BASE_NEARBY_QUERIES);
   }
 
-  const queries = [
-    ...baseQueries,
-    ...PUBLIC_NEARBY_QUERIES
-  ];
+  const queries = [];
+  queries.push(...baseQueries.slice(0, 4));
+  queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 3));
+  queries.push(...PHOTO_PLAY_NEARBY_QUERIES.slice(0, 1));
 
   if (isCafeIncludedInCourse()) {
-    queries.push(...CAFE_NEARBY_QUERIES);
+    queries.push(...CAFE_NEARBY_QUERIES.slice(0, 1));
   }
   if (isRestaurantIncludedInCourse()) {
-    queries.push(...RESTAURANT_NEARBY_QUERIES);
+    queries.push(...RESTAURANT_NEARBY_QUERIES.slice(0, 1));
   }
   if (isEventIncludedInCourse()) {
-    queries.push(...EVENT_NEARBY_QUERIES);
+    queries.push(...EVENT_NEARBY_QUERIES.slice(0, 2));
   }
 
   const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
@@ -452,6 +453,9 @@ function toLiveSpot(item, idx, maxDistanceKm) {
   if (distanceKm > maxDistanceKm + 0.8) return null;
 
   const categoryLabel = stripHtml(item.category || "");
+  const address = stripHtml(item.roadAddress || item.address || "");
+  if (shouldExcludePlaceFromList(name, categoryLabel, address)) return null;
+
   const spotType = detectSpotType(name, categoryLabel);
   const stayMin = estimateStayMinutes(name, categoryLabel);
   const blogReviewTotal = Number(item.blogReviewTotal || 0);
@@ -469,7 +473,7 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     type: spotType,
     categoryLabel,
     categoryMain: extractPrimaryCategory(categoryLabel),
-    address: stripHtml(item.roadAddress || item.address || ""),
+    address,
     telephone: stripHtml(item.telephone || ""),
     placeLink: toSafeExternalUrl(item.placeLink || item.link || ""),
     reviewLink: toSafeExternalUrl(item.reviewLink || item.placeLink || item.link || ""),
@@ -578,7 +582,65 @@ function detectSpotType(name, categoryLabel) {
   return "nearby";
 }
 
+function shouldExcludePlaceFromList(name, categoryLabel, address = "") {
+  const text = buildPlaceSearchText(name, categoryLabel, address);
+
+  if (isEducationFacilityText(text)) return true;
+  if (isPhotoStudioText(text) && !isLifePhotoBoothText(text)) return true;
+  if (isParkLikeButNotOutdoor(text)) return true;
+
+  return false;
+}
+
+function buildPlaceSearchText(name, categoryLabel, address = "") {
+  return `${name || ""} ${categoryLabel || ""} ${address || ""}`
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function hasAnyKeyword(text, keywords) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function isEducationFacilityText(text) {
+  return hasAnyKeyword(text, [
+    "학원", "교습소", "공부방", "어학원", "교육원", "영어유치원",
+    "어린이집", "유치원", "초등학교", "중학교", "고등학교"
+  ]);
+}
+
+function isLifePhotoBoothText(text) {
+  return hasAnyKeyword(text, [
+    "인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처", "포토매틱", "셀픽스"
+  ]);
+}
+
+function isPhotoStudioText(text) {
+  return hasAnyKeyword(text, [
+    "사진관", "사진 스튜디오", "사진스튜디오", "포토스튜디오", "프로필 촬영", "셀프사진관", "사진촬영", "증명사진"
+  ]);
+}
+
+function isParkLikeButNotOutdoor(text) {
+  const parkLike = hasAnyKeyword(text, ["공원", "정원"]);
+  if (!parkLike) return false;
+
+  const strongOutdoor = hasAnyKeyword(text, [
+    "야외", "강변", "한강공원", "산책", "둘레길", "수변", "숲", "잔디", "생태", "피크닉", "광장"
+  ]);
+  const indoorLike = hasAnyKeyword(text, [
+    "실내", "스튜디오", "사진관", "센터", "건물", "카페", "식당", "레스토랑", "학원", "어린이집", "유치원"
+  ]);
+
+  return indoorLike && !strongOutdoor;
+}
+
 function isPublicPlaceSpot(spot) {
+  if (shouldExcludePlaceFromList(spot?.name || "", spot?.categoryLabel || "", spot?.address || "")) {
+    return false;
+  }
+
   const type = String(spot?.type || "").toLowerCase();
   if (["park", "garden", "heritage", "museum", "outdoor", "library"].includes(type)) {
     return true;
@@ -961,6 +1023,7 @@ function findBestSpotForStrategy(
     const addedMinutes = travelMinutes(legKm) + spot.stayMin;
     const projected = currentMinutes + addedMinutes;
     if (projected > maxMinutes) return;
+    if (shouldSkipConsecutiveDining(routeSpots, spot, current, visitedIds, candidateSpots, currentMinutes, maxMinutes)) return;
 
     const score = scoreSpotByStrategy(
       strategy,
@@ -992,35 +1055,83 @@ function scoreSpotByStrategy(strategy, spot, origin, current, candidateSpots, ro
   const kidSuitabilityScore = getKidSuitabilityScore(spot);
   const diningBonus = getDiningPreferenceBonus(spot);
   const eventBonus = getEventPreferenceBonus(spot);
+  const playCenteredAdjustment = getPlayCenteredAdjustment(spot, routeSpots);
   const priorityRank = priorityRanks.get(getSpotSelectionKey(spot));
   const priorityBonus = priorityRank === undefined ? 0 : Math.max(80, 250 - (priorityRank * 22));
 
   switch (strategy.key) {
     case "closestFromHere":
       if (isSeed) {
-        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + (kidSuitabilityScore * 3) + diningBonus + eventBonus + priorityBonus;
+        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + (kidSuitabilityScore * 3)
+          + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
       }
       return 150 - (fromOriginKm * 26) - (fromCurrentKm * 16) - (clusterKm * 5)
-        + (popularityScore * 2) + (kidSuitabilityScore * 2.4) + diningBonus + eventBonus + priorityBonus;
+        + (popularityScore * 2) + (kidSuitabilityScore * 2.4) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
     case "clusterNearby":
       if (isSeed) {
         return (densityScore * 26) - (fromOriginKm * 12) + (popularityScore * 2)
-          + (kidSuitabilityScore * 2.2) + diningBonus + eventBonus + priorityBonus;
+          + (kidSuitabilityScore * 2.2) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
       }
       return (densityScore * 30) - (fromCurrentKm * 22) - (clusterKm * 18) - (fromOriginKm * 5)
-        + (kidSuitabilityScore * 2.2) + diningBonus + eventBonus + priorityBonus;
+        + (kidSuitabilityScore * 2.2) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
     case "mostPopular":
       return (popularityScore * 30) - (fromCurrentKm * 12) - (fromOriginKm * 4) + (densityScore * 2)
-        + (kidSuitabilityScore * 4) + diningBonus + eventBonus + priorityBonus;
+        + (kidSuitabilityScore * 4) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
     case "indoorPlay":
       return (indoorScore * 32) + (popularityScore * 8) - (fromCurrentKm * 13) - (fromOriginKm * 5)
-        + (densityScore * 2) + (kidSuitabilityScore * 3.2) + diningBonus + eventBonus + priorityBonus;
+        + (densityScore * 2) + (kidSuitabilityScore * 3.2) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
     case "outdoorNature":
       return (outdoorScore * 32) + (popularityScore * 6) - (fromCurrentKm * 12) - (fromOriginKm * 5)
-        + (densityScore * 2) + (kidSuitabilityScore * 2.8) + diningBonus + eventBonus + priorityBonus;
+        + (densityScore * 2) + (kidSuitabilityScore * 2.8) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
     default:
-      return (popularityScore * 8) + (kidSuitabilityScore * 2.4) + diningBonus + eventBonus - (fromCurrentKm * 10) + priorityBonus;
+      return (popularityScore * 8) + (kidSuitabilityScore * 2.4) + diningBonus + eventBonus
+        + playCenteredAdjustment - (fromCurrentKm * 10) + priorityBonus;
   }
+}
+
+function shouldSkipConsecutiveDining(routeSpots, candidateSpot, current, visitedIds, candidateSpots, currentMinutes, maxMinutes) {
+  const previousSpot = routeSpots.length ? routeSpots[routeSpots.length - 1] : null;
+  if (!previousSpot) return false;
+  if (!isDiningSpot(previousSpot) || !isDiningSpot(candidateSpot)) return false;
+
+  return hasFeasibleNonDiningSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes);
+}
+
+function hasFeasibleNonDiningSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes) {
+  return candidateSpots.some((spot) => {
+    if (visitedIds.has(spot.id)) return false;
+    if (isDiningSpot(spot)) return false;
+    const legKm = haversineKm(current.lat, current.lng, spot.lat, spot.lng);
+    const projected = currentMinutes + travelMinutes(legKm) + spot.stayMin;
+    return projected <= maxMinutes;
+  });
+}
+
+function getPlayCenteredAdjustment(spot, routeSpots) {
+  const previousSpot = routeSpots.length ? routeSpots[routeSpots.length - 1] : null;
+  const diningCount = routeSpots.reduce((count, routeSpot) => {
+    return count + (isDiningSpot(routeSpot) ? 1 : 0);
+  }, 0);
+  const playCount = routeSpots.length - diningCount;
+
+  if (isDiningSpot(spot)) {
+    let penalty = -12;
+    if (!routeSpots.length) penalty -= 8;
+    if (previousSpot && isDiningSpot(previousSpot)) penalty -= 48;
+    if (diningCount >= playCount) penalty -= 18;
+    return penalty;
+  }
+
+  let bonus = 6;
+  if (previousSpot && isDiningSpot(previousSpot)) {
+    bonus += 14;
+  }
+  return bonus;
+}
+
+function isDiningSpot(spot) {
+  const typeKey = getSpotTypeKey(spot);
+  return typeKey === "cafe" || typeKey === "restaurant";
 }
 
 function averageDistanceToRoute(targetSpot, routeSpots) {
@@ -1523,6 +1634,9 @@ function buildPlaceFeatureSummary(spot) {
   }
   if (hasKeyword("식당", "레스토랑", "한식", "양식", "분식", "푸드")) {
     pushUniqueSummary(play, "놀이와 식사를 한 번에 계획하기 좋은 식사 코스예요");
+  }
+  if (hasKeyword("인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처")) {
+    pushUniqueSummary(play, "인생네컷 같은 포토 놀이를 짧게 넣기 좋은 코스예요");
   }
   if (hasKeyword("행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회")) {
     pushUniqueSummary(play, "근처 행사/공연 일정과 함께 하루 코스를 구성하기 좋아요");
