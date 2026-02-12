@@ -590,7 +590,7 @@ button:disabled {
   color: #4b5a6b;
   line-height: 1.45;
   display: grid;
-  grid-template-columns: 34px 1fr;
+  grid-template-columns: 40px 1fr;
   gap: 6px;
   align-items: start;
 }

@@ -1026,7 +1026,7 @@ function renderNearbyPlaces() {
             ${blogCountLinkMarkup}
           </div>
           <p class="nearby-place-meta">${escapeHtml(locationMeta || "주소 정보 없음")}</p>
-          <p class="nearby-place-feature"><span class="nearby-feature-label">특징</span>${escapeHtml(placeFeature)}</p>
+          <p class="nearby-place-feature"><span class="nearby-feature-label">여기는</span>${escapeHtml(placeFeature)}</p>
         </div>
       </div>
       ${quickLinksMarkup}
@@ -1093,26 +1093,23 @@ function buildPlaceFeatureSummary(spot) {
     .toLowerCase();
 
   const hasKeyword = (...keywords) => keywords.some((keyword) => sourceText.includes(keyword));
-  const service = [];
+  const play = [];
   const benefit = [];
 
-  if (hasKeyword("수유실", "기저귀", "기저귀교환", "유아휴게", "수유")) {
-    pushUniqueSummary(service, "수유/기저귀 교환 등 영유아 편의시설을 기대할 수 있어요");
+  if (hasKeyword("키즈카페", "실내놀이터", "놀이방", "볼풀", "트램폴린", "정글짐", "미끄럼틀")) {
+    pushUniqueSummary(play, "실내 놀이시설 중심으로 시간을 보내기 좋아요");
   }
-  if (hasKeyword("주차", "무료주차", "주차장")) {
-    pushUniqueSummary(service, "차량 이동 시 주차 접근성이 좋은 편이에요");
+  if (hasKeyword("체험", "클래스", "공방", "만들기", "미술", "쿠킹", "과학", "오감")) {
+    pushUniqueSummary(play, "체험형 놀이와 만들기 활동을 함께 즐길 수 있어요");
   }
-  if (hasKeyword("유아의자", "아기의자", "키즈존", "유모차")) {
-    pushUniqueSummary(service, "유아 동반 좌석/키즈존 등 동반 편의가 언급돼요");
+  if (hasKeyword("공원", "놀이터", "야외", "산책", "숲")) {
+    pushUniqueSummary(play, "야외 놀이와 산책 동선을 만들기 좋아요");
   }
-  if (hasKeyword("예약", "네이버예약", "사전예약", "타임권")) {
-    pushUniqueSummary(service, "사전 예약 후 대기 시간을 줄여 방문하기 좋아요");
+  if (hasKeyword("도서관", "그림책", "독서", "책놀이")) {
+    pushUniqueSummary(play, "조용한 독서/책놀이 활동과 병행하기 좋아요");
   }
-  if (hasKeyword("키즈존", "어린이", "유아", "놀이", "체험")) {
-    pushUniqueSummary(service, "아이 동반 방문을 고려한 체험/놀이 요소가 안내돼요");
-  }
-  if (!service.length) {
-    pushUniqueSummary(service, "유아 동반 가능 여부와 편의시설을 확인하고 방문하면 좋아요");
+  if (!play.length) {
+    pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
   }
 
   if (hasKeyword("할인", "이벤트", "쿠폰", "패키지", "무료", "혜택")) {
@@ -1131,7 +1128,7 @@ function buildPlaceFeatureSummary(spot) {
     pushUniqueSummary(benefit, "근처 장소와 묶어 반나절 코스로 구성하기 좋아요");
   }
 
-  return [...service, ...benefit].slice(0, 2).join(" · ");
+  return [...play, ...benefit].slice(0, 2).join(" · ");
 }
 
 function pushUniqueSummary(collection, item) {
