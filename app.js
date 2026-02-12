@@ -71,23 +71,11 @@ function bindUiEvents() {
     renderSuggestions();
   });
 
-  useLocationBtn.addEventListener("click", () => {
-    if (!navigator.geolocation) {
-      alert("현재 브라우저에서 위치 정보를 지원하지 않습니다.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        startPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
-        if (map && window.naver && window.naver.maps) {
-          map.setCenter(toLatLng(startPoint));
-          map.setZoom(14, true);
-        }
-        redrawStartArea();
-        await syncNearbyAndRender();
-      },
-      () => alert("현재 위치를 가져오지 못했습니다. 지도 중심 기준으로 추천합니다.")
-    );
+  useLocationBtn.addEventListener("click", async () => {
+    await requestCurrentLocation({
+      showFailureAlert: true,
+      refreshNearby: true
+    });
   });
 
   suggestBtn.addEventListener("click", async () => {
@@ -105,12 +93,60 @@ async function bootstrapNaverMap() {
   try {
     await loadNaverMapScript(mapKeyId);
     initializeMap();
+    await requestCurrentLocation({
+      showFailureAlert: false,
+      refreshNearby: false
+    });
     redrawStartArea();
     await syncNearbyAndRender();
   } catch (error) {
     console.error(error);
     showMapSetupMessage("네이버 지도 로딩에 실패했습니다. Key ID와 서비스 URL을 확인해 주세요.");
   }
+}
+
+async function requestCurrentLocation({ showFailureAlert = true, refreshNearby = true } = {}) {
+  if (!navigator.geolocation) {
+    if (showFailureAlert) {
+      alert("현재 브라우저에서 위치 정보를 지원하지 않습니다.");
+    }
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        startPoint = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+
+        if (map && window.naver && window.naver.maps) {
+          map.setCenter(toLatLng(startPoint));
+          map.setZoom(14, true);
+        }
+
+        redrawStartArea();
+
+        if (refreshNearby) {
+          await syncNearbyAndRender();
+        }
+
+        resolve(true);
+      },
+      () => {
+        if (showFailureAlert) {
+          alert("현재 위치를 가져오지 못했습니다. 지도 중심 기준으로 추천합니다.");
+        }
+        resolve(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000
+      }
+    );
+  });
 }
 
 function getNaverMapKeyId() {
