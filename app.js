@@ -275,8 +275,11 @@ function toLiveSpot(item, idx, maxDistanceKm) {
   const coords = toLatLngFromNearbyItem(item);
   if (!coords) return null;
 
-  const distanceKm = haversineKm(startPoint.lat, startPoint.lng, coords.lat, coords.lng);
-  if (distanceKm > maxDistanceKm + 0.25) return null;
+  const rawDistanceKm = Number(item.distanceKm);
+  const distanceKm = Number.isFinite(rawDistanceKm)
+    ? rawDistanceKm
+    : haversineKm(startPoint.lat, startPoint.lng, coords.lat, coords.lng);
+  if (distanceKm > maxDistanceKm + 0.8) return null;
 
   const category = stripHtml(item.category || "");
   const stayMin = estimateStayMinutes(name, category);
