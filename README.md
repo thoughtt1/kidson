@@ -11,12 +11,13 @@
 
 ## 실행 방법
 
-1. `index.html`의 하단 스크립트에서 `window.NAVER_MAP_CLIENT_ID` 값을 본인 키로 바꿉니다.
+1. `index.html`의 하단 스크립트에서 `window.NAVER_MAP_KEY_ID` 값을 본인 Key ID로 바꿉니다.
 2. `index.html`을 브라우저에서 열면 바로 실행됩니다.
 
 ## 참고
 
 - 지도는 네이버 지도 JavaScript API(v3)를 사용합니다.
+- `ncp_iam_...` 형태의 IAM Access Key는 브라우저 코드에 넣지 마세요.
 - 서비스 URL(도메인) 등록이 되지 않으면 지도 타일이 표시되지 않습니다.
 - 추천 로직은 MVP용 그리디(heuristic) 방식입니다.
 - 운영 서비스에서는 장소 데이터/타일 정책을 검토해 상용 플랜으로 확장하세요.

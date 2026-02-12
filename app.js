@@ -77,36 +77,40 @@ function bindUiEvents() {
 }
 
 async function bootstrapNaverMap() {
-  const clientId = getNaverClientId();
-  if (!clientId || clientId === "YOUR_NCP_CLIENT_ID") {
-    showMapSetupMessage("네이버 지도 Client ID를 입력하면 지도가 표시됩니다.");
+  const mapKeyId = getNaverMapKeyId();
+  if (!mapKeyId || mapKeyId === "YOUR_NCP_KEY_ID") {
+    showMapSetupMessage("네이버 지도 Key ID를 입력하면 지도가 표시됩니다.");
     return;
   }
 
   try {
-    await loadNaverMapScript(clientId);
+    await loadNaverMapScript(mapKeyId);
     initializeMap();
     redrawStartArea();
     renderSuggestions();
   } catch (error) {
     console.error(error);
-    showMapSetupMessage("네이버 지도 로딩에 실패했습니다. Client ID와 서비스 URL을 확인해 주세요.");
+    showMapSetupMessage("네이버 지도 로딩에 실패했습니다. Key ID와 서비스 URL을 확인해 주세요.");
   }
 }
 
-function getNaverClientId() {
-  const fromWindow = typeof window.NAVER_MAP_CLIENT_ID === "string" ? window.NAVER_MAP_CLIENT_ID.trim() : "";
-  return fromWindow;
+function getNaverMapKeyId() {
+  const keyId = typeof window.NAVER_MAP_KEY_ID === "string" ? window.NAVER_MAP_KEY_ID.trim() : "";
+  if (keyId) return keyId;
+
+  // Backward compatibility with prior variable naming.
+  const legacyClientId = typeof window.NAVER_MAP_CLIENT_ID === "string" ? window.NAVER_MAP_CLIENT_ID.trim() : "";
+  return legacyClientId;
 }
 
-function loadNaverMapScript(clientId) {
+function loadNaverMapScript(mapKeyId) {
   if (window.naver && window.naver.maps) {
     return Promise.resolve();
   }
 
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `${NAVER_MAP_SCRIPT_URL}?ncpClientId=${encodeURIComponent(clientId)}`;
+    script.src = `${NAVER_MAP_SCRIPT_URL}?ncpKeyId=${encodeURIComponent(mapKeyId)}`;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
