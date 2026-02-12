@@ -499,14 +499,18 @@ function renderSuggestions() {
   resetSpotStyles();
 
   if (!routes.length) {
-    routeList.innerHTML = "<div class=\"route-card\">설정한 거리/시간에 맞는 코스가 없습니다. 반경 또는 시간을 늘려보세요.</div>";
+    if (priorityRanks.size > 0) {
+      routeList.innerHTML = "<div class=\"route-card\">여기는 꼭 장소를 모두 포함할 수 없습니다. 사용 가능 시간 또는 반경을 늘려보세요.</div>";
+    } else {
+      routeList.innerHTML = "<div class=\"route-card\">설정한 거리/시간에 맞는 코스가 없습니다. 반경 또는 시간을 늘려보세요.</div>";
+    }
     return;
   }
 
   routes.forEach((route, idx) => {
     const card = document.createElement("article");
     card.className = "route-card";
-    const selectedHitText = route.selectedHits > 0 ? ` · 꼭 ${route.selectedHits}곳` : "";
+    const selectedHitText = route.selectedHits > 0 ? ` · 꼭 ${route.selectedHits}곳 반영` : "";
     const stopsMarkup = route.spots
       .map((spot, spotIdx) => {
         const hasNext = spotIdx < route.spots.length - 1;
@@ -560,6 +564,7 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
   if (!candidateSpots.length) return [];
   const results = [];
   const seedEntries = [];
+  const mandatoryKeys = new Set(priorityRanks.keys());
 
   if (priorityRanks.size > 0) {
     const mustRoute = buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRanks);
@@ -639,7 +644,15 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
     }
   });
 
-  return deduplicateRoutes(results)
+  let normalizedRoutes = deduplicateRoutes(results);
+
+  if (mandatoryKeys.size > 0) {
+    normalizedRoutes = normalizedRoutes.filter((route) => {
+      return routeContainsAllMandatory(route, mandatoryKeys);
+    });
+  }
+
+  return normalizedRoutes
     .sort((a, b) => {
       if (Boolean(b.isMust) !== Boolean(a.isMust)) {
         return Number(Boolean(b.isMust)) - Number(Boolean(a.isMust));
@@ -668,21 +681,25 @@ function buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRank
   let minutes = 0;
   let cursor = { lat: origin.lat, lng: origin.lng };
 
-  mustSpots.forEach((spot) => {
-    if (visitedIds.has(spot.id)) return;
+  for (const spot of mustSpots) {
+    if (visitedIds.has(spot.id)) continue;
 
     const legKm = haversineKm(cursor.lat, cursor.lng, spot.lat, spot.lng);
     const addedMinutes = travelMinutes(legKm) + spot.stayMin;
-    if (minutes + addedMinutes > maxMinutes) return;
+    if (minutes + addedMinutes > maxMinutes) {
+      return null;
+    }
 
     routeSpots.push(spot);
     visitedIds.add(spot.id);
     distanceKm += legKm;
     minutes += addedMinutes;
     cursor = spot;
-  });
+  }
 
-  if (!routeSpots.length) return null;
+  if (routeSpots.length !== mustSpots.length) {
+    return null;
+  }
 
   while (true) {
     const next = findBestNextSpot(
@@ -715,6 +732,15 @@ function buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRank
     label: "여기는 꼭 코스",
     isMust: true
   };
+}
+
+function routeContainsAllMandatory(route, mandatoryKeys) {
+  if (!mandatoryKeys.size) return true;
+  const routeKeys = new Set(route.spots.map((spot) => getSpotSelectionKey(spot)));
+  for (const key of mandatoryKeys) {
+    if (!routeKeys.has(key)) return false;
+  }
+  return true;
 }
 
 function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes, priorityRanks) {
