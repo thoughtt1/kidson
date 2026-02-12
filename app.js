@@ -32,6 +32,8 @@ const suggestBtn = document.getElementById("suggestBtn");
 const routeList = document.getElementById("routeList");
 const mapElement = document.getElementById("map");
 const resultsCaption = document.getElementById("resultsCaption");
+const selectedPlaceList = document.getElementById("selectedPlaceList");
+const clearSelectedBtn = document.getElementById("clearSelectedBtn");
 
 let startPoint = { ...DEFAULT_CENTER };
 let map = null;
@@ -39,6 +41,7 @@ let startMarker = null;
 let radiusCircle = null;
 let routePolyline = null;
 let isFetchingNearby = false;
+const selectedPlaces = [];
 const spotMarkers = new Map();
 const spotInfoWindows = new Map();
 
@@ -46,10 +49,15 @@ bindUiEvents();
 redrawStartArea();
 timeValue.textContent = timeMinutesInput.value;
 setResultsCaption(DEFAULT_RESULTS_CAPTION);
+renderSelectedPlaces();
 renderSuggestions();
 bootstrapNaverMap();
 
 function bindUiEvents() {
+  if (clearSelectedBtn) {
+    clearSelectedBtn.addEventListener("click", clearSelectedPlaces);
+  }
+
   distanceKmInput.addEventListener("input", () => {
     distanceValue.textContent = distanceKmInput.value;
     redrawStartArea();
@@ -400,6 +408,7 @@ function renderSpotMarkers() {
     });
 
     naver.maps.Event.addListener(marker, "click", () => {
+      recordSelectedSpot(spot);
       spotInfoWindows.forEach((popup) => popup.close());
       infoWindow.open(map, marker);
     });
@@ -407,6 +416,9 @@ function renderSpotMarkers() {
     spotMarkers.set(spot.id, marker);
     spotInfoWindows.set(spot.id, infoWindow);
   });
+
+  syncSelectedPlacesWithCurrentSpots();
+  renderSelectedPlaces();
 }
 
 function rerenderSpotMarkers() {
@@ -631,6 +643,137 @@ function buildCircleMarkerIcon(fillColor) {
     origin: new naver.maps.Point(0, 0),
     anchor: new naver.maps.Point(center, center)
   };
+}
+
+function recordSelectedSpot(spot) {
+  const key = getSpotSelectionKey(spot);
+  const existingIndex = selectedPlaces.findIndex((item) => item.key === key);
+
+  const place = {
+    key,
+    spotId: spot.id,
+    name: spot.name,
+    lat: spot.lat,
+    lng: spot.lng,
+    categoryLabel: spot.categoryLabel || "",
+    address: spot.address || "",
+    stayMin: spot.stayMin
+  };
+
+  if (existingIndex >= 0) {
+    selectedPlaces.splice(existingIndex, 1);
+  }
+  selectedPlaces.unshift(place);
+
+  if (selectedPlaces.length > 15) {
+    selectedPlaces.length = 15;
+  }
+
+  renderSelectedPlaces();
+}
+
+function clearSelectedPlaces() {
+  selectedPlaces.length = 0;
+  renderSelectedPlaces();
+}
+
+function getSpotSelectionKey(spot) {
+  return `${spot.name}|${Number(spot.lat).toFixed(6)}|${Number(spot.lng).toFixed(6)}`;
+}
+
+function syncSelectedPlacesWithCurrentSpots() {
+  if (!selectedPlaces.length) return;
+
+  const currentSpotIdsByKey = new Map(
+    spots.map((spot) => [getSpotSelectionKey(spot), spot.id])
+  );
+
+  selectedPlaces.forEach((place) => {
+    const nextSpotId = currentSpotIdsByKey.get(place.key);
+    if (nextSpotId) {
+      place.spotId = nextSpotId;
+    }
+  });
+}
+
+function renderSelectedPlaces() {
+  if (!selectedPlaceList) return;
+
+  selectedPlaceList.innerHTML = "";
+
+  if (!selectedPlaces.length) {
+    selectedPlaceList.innerHTML = "<div class=\"selected-empty\">지도에서 장소를 선택해보세요</div>";
+    return;
+  }
+
+  selectedPlaces.forEach((place, idx) => {
+    const card = document.createElement("article");
+    card.className = "selected-place-item";
+
+    const metaText = [place.categoryLabel || `권장 체류 ${place.stayMin}분`, place.address]
+      .filter(Boolean)
+      .join(" · ");
+
+    card.innerHTML = `
+      <div class="selected-item-top">
+        <span class="selected-index">${idx + 1}</span>
+        <strong class="selected-name">${escapeHtml(place.name)}</strong>
+      </div>
+      <p class="selected-meta">${escapeHtml(metaText)}</p>
+      <div class="selected-actions">
+        <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
+        <button type="button" class="selected-action-btn danger" data-action="remove">삭제</button>
+      </div>
+    `;
+
+    const focusButton = card.querySelector("[data-action=\"focus\"]");
+    const removeButton = card.querySelector("[data-action=\"remove\"]");
+
+    if (focusButton) {
+      focusButton.addEventListener("click", () => {
+        focusSelectedPlace(place);
+      });
+    }
+
+    if (removeButton) {
+      removeButton.addEventListener("click", () => {
+        removeSelectedPlace(place.key);
+      });
+    }
+
+    selectedPlaceList.appendChild(card);
+  });
+}
+
+function removeSelectedPlace(placeKey) {
+  const index = selectedPlaces.findIndex((place) => place.key === placeKey);
+  if (index < 0) return;
+  selectedPlaces.splice(index, 1);
+  renderSelectedPlaces();
+}
+
+function focusSelectedPlace(place) {
+  if (!map || !window.naver || !window.naver.maps) return;
+
+  const target = new naver.maps.LatLng(place.lat, place.lng);
+  map.panTo(target);
+
+  let marker = spotMarkers.get(place.spotId);
+  if (!marker) {
+    const matchedSpot = spots.find((spot) => getSpotSelectionKey(spot) === place.key);
+    if (matchedSpot) {
+      marker = spotMarkers.get(matchedSpot.id);
+      place.spotId = matchedSpot.id;
+    }
+  }
+
+  if (!marker) return;
+
+  const infoWindow = spotInfoWindows.get(place.spotId);
+  if (!infoWindow) return;
+
+  spotInfoWindows.forEach((popup) => popup.close());
+  infoWindow.open(map, marker);
 }
 
 function showMapSetupMessage(message) {
