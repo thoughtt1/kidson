@@ -521,6 +521,9 @@ function renderSuggestions() {
   const distanceKm = Number(distanceKmInput.value);
   const maxMinutes = Number(timeMinutesInput.value) || DEFAULT_AVAILABLE_MINUTES;
   const candidates = filterCandidateSpots(startPoint, distanceKm);
+  const mustPlaceKeys = new Set(selectedPlaces.map((place) => place.key));
+  const candidateKeys = new Set(candidates.map((spot) => getSpotSelectionKey(spot)));
+  const missingMustCount = [...mustPlaceKeys].filter((key) => !candidateKeys.has(key)).length;
   const priorityRanks = getPriorityRanks(candidates);
   const mandatoryKeys = new Set(priorityRanks.keys());
   const routes = buildRouteSuggestions(
@@ -535,6 +538,11 @@ function renderSuggestions() {
   routeList.scrollTop = 0;
   clearRouteLine();
   resetSpotStyles();
+
+  if (mustPlaceKeys.size > 0 && missingMustCount > 0) {
+    routeList.innerHTML = "<div class=\"route-card\">여기는 꼭 장소가 현재 반경 밖에 있습니다. 반경을 늘린 뒤 다시 확인해 주세요.</div>";
+    return;
+  }
 
   if (!routes.length) {
     if (priorityRanks.size > 0) {
