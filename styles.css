@@ -221,17 +221,18 @@ button:disabled {
 }
 
 .route-card.must-highlight {
-  background: rgba(3, 199, 90, 0.16);
-  border-color: rgba(3, 199, 90, 0.45);
+  background: rgba(3, 199, 90, 0.24);
+  border-color: rgba(3, 199, 90, 0.58);
+  box-shadow: 0 0 0 1px rgba(3, 199, 90, 0.28) inset, 0 6px 16px rgba(3, 199, 90, 0.15);
 }
 
 .route-card.must-highlight .route-title {
-  color: #14532d;
+  color: #0f5132;
 }
 
 .route-card.must-highlight.active {
   border-color: #03c75a;
-  box-shadow: 0 0 0 2px rgba(3, 199, 90, 0.24) inset;
+  box-shadow: 0 0 0 2px rgba(3, 199, 90, 0.35) inset, 0 7px 18px rgba(3, 199, 90, 0.2);
 }
 
 .route-head {
@@ -270,6 +271,21 @@ button:disabled {
   background: #f3f7fa;
   border: 1px solid #e0e8ee;
   white-space: nowrap;
+}
+
+.route-leg.must-stop {
+  background: rgba(3, 199, 90, 0.22);
+  border-color: rgba(3, 199, 90, 0.55);
+  color: #0f5132;
+  font-weight: 800;
+}
+
+.route-leg-arrow {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: #5b6879;
+  font-weight: 700;
 }
 
 .map-stage {

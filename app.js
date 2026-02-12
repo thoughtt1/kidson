@@ -522,6 +522,7 @@ function renderSuggestions() {
   const maxMinutes = Number(timeMinutesInput.value) || DEFAULT_AVAILABLE_MINUTES;
   const candidates = filterCandidateSpots(startPoint, distanceKm);
   const priorityRanks = getPriorityRanks(candidates);
+  const mandatoryKeys = new Set(priorityRanks.keys());
   const routes = buildRouteSuggestions(
     startPoint,
     candidates,
@@ -553,10 +554,12 @@ function renderSuggestions() {
     const selectedHitText = route.selectedHits > 0 ? ` · 꼭 ${route.selectedHits}곳 반영` : "";
     const stopsMarkup = route.spots
       .map((spot, spotIdx) => {
-        const hasNext = spotIdx < route.spots.length - 1;
-        return `<span class="route-leg">${spot.name}${hasNext ? " →" : ""}</span>`;
+        const spotKey = getSpotSelectionKey(spot);
+        const isMustSpot = mandatoryKeys.has(spotKey);
+        const legClass = isMustSpot ? "route-leg must-stop" : "route-leg";
+        return `<span class="${legClass}">${spot.name}</span>`;
       })
-      .join("");
+      .join("<span class=\"route-leg-arrow\">→</span>");
 
     card.innerHTML = `
       <div class="route-head">
