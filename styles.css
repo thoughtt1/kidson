@@ -220,6 +220,20 @@ button:disabled {
   box-shadow: 0 0 0 2px rgba(3, 199, 90, 0.14) inset;
 }
 
+.route-card.must-highlight {
+  background: rgba(3, 199, 90, 0.16);
+  border-color: rgba(3, 199, 90, 0.45);
+}
+
+.route-card.must-highlight .route-title {
+  color: #14532d;
+}
+
+.route-card.must-highlight.active {
+  border-color: #03c75a;
+  box-shadow: 0 0 0 2px rgba(3, 199, 90, 0.24) inset;
+}
+
 .route-head {
   display: flex;
   justify-content: space-between;
