@@ -584,17 +584,6 @@ button:disabled {
   line-height: 1.35;
 }
 
-.nearby-place-review {
-  margin: 0;
-  font-size: 11px;
-  color: #526174;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 .nearby-quick-row {
   display: flex;
   flex-wrap: wrap;
@@ -627,49 +616,37 @@ button:disabled {
   pointer-events: none;
 }
 
-.nearby-review-block {
+.nearby-kid-summary {
   display: grid;
   gap: 6px;
-  padding: 8px 9px;
+  padding: 9px 10px;
   border: 1px solid #e4eaf1;
   border-radius: 9px;
-  background: #f9fbfd;
+  background: #fbfcfe;
 }
 
-.nearby-review-title {
+.nearby-kid-summary-title {
   margin: 0;
   font-size: 11px;
   font-weight: 800;
-  color: #475569;
+  color: #334155;
 }
 
-.nearby-review-links {
+.nearby-kid-summary-line {
+  margin: 0;
+  font-size: 11px;
+  color: #4b5a6b;
+  line-height: 1.45;
   display: grid;
-  gap: 4px;
+  grid-template-columns: 42px 1fr;
+  gap: 6px;
+  align-items: start;
 }
 
-.nearby-review-link {
+.nearby-kid-summary-label {
   font-size: 11px;
-  color: #0369a1;
-  text-decoration: none;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.nearby-review-link.disabled {
-  color: #94a3b8;
-  pointer-events: none;
-}
-
-.nearby-review-link:hover {
-  text-decoration: underline;
-}
-
-.nearby-review-empty {
-  font-size: 11px;
-  color: #94a3b8;
+  font-weight: 800;
+  color: #1f7a43;
 }
 
 .nearby-actions {

@@ -914,11 +914,8 @@ function renderNearbyPlaces() {
       .join(" · ");
     const ratingLabel = getSpotRatingLabel(spot);
     const blogCountLabel = getSpotBlogCountLabel(spot);
-    const reviewSummary = getSpotReviewSummary(spot);
+    const kidGuideSummary = buildKidGuideSummary(spot);
     const quickLinkItems = [];
-    if (spot.placeLink) {
-      quickLinkItems.push(`<a class="nearby-quick-link" href="${escapeHtml(spot.placeLink)}" target="_blank" rel="noopener noreferrer">상세정보</a>`);
-    }
     const phoneMarkup = buildPhoneMarkup(spot.telephone);
     if (phoneMarkup) {
       quickLinkItems.push(phoneMarkup);
@@ -936,11 +933,18 @@ function renderNearbyPlaces() {
       blogCountLabel,
       "nearby-blog-count"
     );
-    const reviewsMarkup = buildReviewLinksMarkup(spot);
     const imageTargetUrl = spot.placeLink || spot.photoLink || spot.photoThumbnail || "";
     const photoMarkup = spot.photoThumbnail
       ? `<a class="nearby-photo-link" href="${escapeHtml(imageTargetUrl)}" target="_blank" rel="noopener noreferrer"><img class="nearby-photo" src="${escapeHtml(spot.photoThumbnail)}" alt="${escapeHtml(spot.name)} 사진"></a>`
       : "<div class=\"nearby-photo-placeholder\">사진 없음</div>";
+    const kidGuideMarkup = `
+      <div class="nearby-kid-summary">
+        <p class="nearby-kid-summary-title">아이와 함께 한눈 요약</p>
+        <p class="nearby-kid-summary-line"><span class="nearby-kid-summary-label">놀이</span>${escapeHtml(kidGuideSummary.play)}</p>
+        <p class="nearby-kid-summary-line"><span class="nearby-kid-summary-label">서비스</span>${escapeHtml(kidGuideSummary.service)}</p>
+        <p class="nearby-kid-summary-line"><span class="nearby-kid-summary-label">혜택</span>${escapeHtml(kidGuideSummary.benefit)}</p>
+      </div>
+    `;
 
     card.innerHTML = `
       <div class="nearby-item-main">
@@ -956,12 +960,11 @@ function renderNearbyPlaces() {
             ${ratingLinkMarkup}
             ${blogCountLinkMarkup}
           </div>
-          <p class="nearby-place-review">${escapeHtml(reviewSummary)}</p>
           <p class="nearby-place-meta">${escapeHtml(locationMeta || "주소 정보 없음")}</p>
         </div>
       </div>
       ${quickLinksMarkup}
-      ${reviewsMarkup}
+      ${kidGuideMarkup}
       <div class="nearby-actions">
         <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
         <button type="button" class="selected-action-btn" data-action="select">선택</button>
@@ -1003,22 +1006,6 @@ function getSpotBlogCountLabel(spot) {
   return `블로그 리뷰 ${reviewCount}건`;
 }
 
-function getSpotReviewSummary(spot) {
-  if (spot.blogReviews?.length) {
-    const first = spot.blogReviews[0];
-    const preview = (first.description || first.title || "").trim();
-    const compactPreview = preview.length > 34 ? `${preview.slice(0, 34)}...` : preview;
-    const parts = [compactPreview, first.bloggerName, first.postDate]
-      .filter(Boolean)
-      .join(" · ");
-    return parts || "리뷰 요약 없음";
-  }
-  if (Number.isFinite(spot.blogReviewTotal) && spot.blogReviewTotal > 0) {
-    return `리뷰 ${spot.blogReviewTotal}건`;
-  }
-  return "리뷰 정보 없음";
-}
-
 function buildMetricLinkMarkup(href, label, className) {
   const safeHref = toSafeExternalUrl(href || "");
   const safeLabel = escapeHtml(label || "");
@@ -1028,35 +1015,80 @@ function buildMetricLinkMarkup(href, label, className) {
   return `<a class="${className} nearby-metric-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
 }
 
-function buildReviewLinksMarkup(spot) {
-  const reviews = Array.isArray(spot?.blogReviews) ? spot.blogReviews : [];
-  const safeBlogTabUrl = toSafeExternalUrl(spot?.blogReviewLink || spot?.placeLink || "");
+function buildKidGuideSummary(spot) {
+  const sourceText = [
+    spot.name || "",
+    spot.categoryLabel || "",
+    spot.address || "",
+    ...(Array.isArray(spot.blogReviews)
+      ? spot.blogReviews.flatMap((review) => [review?.title || "", review?.description || ""])
+      : [])
+  ]
+    .join(" ")
+    .toLowerCase();
 
-  if (!reviews.length) {
-    return [
-      "<div class=\"nearby-review-block\">",
-      "<p class=\"nearby-review-title\">블로그 리뷰</p>",
-      "<div class=\"nearby-review-links\"><span class=\"nearby-review-empty\">리뷰 링크 없음</span></div>",
-      "</div>"
-    ].join("");
+  const hasKeyword = (...keywords) => keywords.some((keyword) => sourceText.includes(keyword));
+  const play = [];
+  const service = [];
+  const benefit = [];
+
+  if (hasKeyword("키즈카페", "실내놀이터", "놀이방", "볼풀", "트램폴린", "정글짐", "미끄럼틀")) {
+    pushUniqueSummary(play, "실내 놀이시설 중심으로 시간을 보내기 좋아요");
+  }
+  if (hasKeyword("체험", "클래스", "공방", "만들기", "미술", "쿠킹", "과학", "오감")) {
+    pushUniqueSummary(play, "체험형 놀이와 만들기 활동을 함께 즐길 수 있어요");
+  }
+  if (hasKeyword("공원", "놀이터", "야외", "산책", "숲")) {
+    pushUniqueSummary(play, "야외 놀이와 산책 동선을 만들기 좋아요");
+  }
+  if (hasKeyword("도서관", "그림책", "독서", "책놀이")) {
+    pushUniqueSummary(play, "조용한 독서/책놀이 활동과 병행하기 좋아요");
+  }
+  if (!play.length) {
+    pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
   }
 
-  const links = reviews
-    .map((review) => {
-      const title = review.title || "리뷰 보기";
-      if (!safeBlogTabUrl) {
-        return `<span class="nearby-review-link disabled">${escapeHtml(title)}</span>`;
-      }
-      return `<a class="nearby-review-link" href="${escapeHtml(safeBlogTabUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`;
-    })
-    .join("");
+  if (hasKeyword("수유실", "기저귀", "기저귀교환", "유아휴게", "수유")) {
+    pushUniqueSummary(service, "수유/기저귀 교환 등 영유아 편의시설을 기대할 수 있어요");
+  }
+  if (hasKeyword("주차", "무료주차", "주차장")) {
+    pushUniqueSummary(service, "차량 이동 시 주차 접근성이 좋은 편이에요");
+  }
+  if (hasKeyword("유아의자", "아기의자", "키즈존", "유모차")) {
+    pushUniqueSummary(service, "유아 동반 좌석/키즈존 등 동반 편의가 언급돼요");
+  }
+  if (hasKeyword("예약", "네이버예약", "사전예약", "타임권")) {
+    pushUniqueSummary(service, "사전 예약 후 대기 시간을 줄여 방문하기 좋아요");
+  }
+  if (!service.length) {
+    pushUniqueSummary(service, "방문 전 운영시간과 유아 동반 가능 여부를 확인해 주세요");
+  }
 
-  return [
-    "<div class=\"nearby-review-block\">",
-    "<p class=\"nearby-review-title\">블로그 리뷰</p>",
-    `<div class="nearby-review-links">${links}</div>`,
-    "</div>"
-  ].join("");
+  if (hasKeyword("할인", "이벤트", "쿠폰", "패키지", "무료", "혜택")) {
+    pushUniqueSummary(benefit, "이벤트/할인 혜택이 있는지 확인해 보세요");
+  }
+  if (hasKeyword("생일", "파티", "단체")) {
+    pushUniqueSummary(benefit, "생일/소규모 모임 코스로 활용하기 좋아요");
+  }
+  if (Array.isArray(spot.blogReviews) && spot.blogReviews.length > 0) {
+    pushUniqueSummary(benefit, "블로그 후기에서 실제 이용 동선과 분위기를 미리 파악할 수 있어요");
+  }
+  if (!benefit.length) {
+    pushUniqueSummary(benefit, "근처 장소와 묶어 반나절 코스로 구성하기 좋아요");
+  }
+
+  return {
+    play: play.slice(0, 1).join(" "),
+    service: service.slice(0, 1).join(" "),
+    benefit: benefit.slice(0, 1).join(" ")
+  };
+}
+
+function pushUniqueSummary(collection, item) {
+  if (!item) return;
+  if (!collection.includes(item)) {
+    collection.push(item);
+  }
 }
 
 function toStars(rating) {
