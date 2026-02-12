@@ -506,7 +506,7 @@ function renderSuggestions() {
   routes.forEach((route, idx) => {
     const card = document.createElement("article");
     card.className = "route-card";
-    const selectedHitText = route.selectedHits > 0 ? ` · 선호 ${route.selectedHits}곳` : "";
+    const selectedHitText = route.selectedHits > 0 ? ` · 꼭 ${route.selectedHits}곳` : "";
     const stopsMarkup = route.spots
       .map((spot, spotIdx) => {
         const hasNext = spotIdx < route.spots.length - 1;
@@ -516,7 +516,7 @@ function renderSuggestions() {
 
     card.innerHTML = `
       <div class="route-head">
-        <div class="route-title">추천 코스 ${idx + 1}</div>
+        <div class="route-title">${escapeHtml(route.label || `추천 코스 ${idx + 1}`)}</div>
         <div class="route-metrics">${Math.round(route.totalMinutes)}분 · ${route.totalDistanceKm.toFixed(1)}km${selectedHitText}</div>
       </div>
       <div class="route-stops">${stopsMarkup}</div>
@@ -560,6 +560,13 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
   if (!candidateSpots.length) return [];
   const results = [];
   const seedEntries = [];
+
+  if (priorityRanks.size > 0) {
+    const mustRoute = buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRanks);
+    if (mustRoute) {
+      results.push(mustRoute);
+    }
+  }
 
   const prioritySeeds = candidateSpots
     .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
@@ -634,11 +641,80 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
 
   return deduplicateRoutes(results)
     .sort((a, b) => {
+      if (Boolean(b.isMust) !== Boolean(a.isMust)) {
+        return Number(Boolean(b.isMust)) - Number(Boolean(a.isMust));
+      }
       if (b.selectedHits !== a.selectedHits) return b.selectedHits - a.selectedHits;
       if (b.spots.length !== a.spots.length) return b.spots.length - a.spots.length;
       return a.totalMinutes - b.totalMinutes;
     })
     .slice(0, limit);
+}
+
+function buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRanks) {
+  const mustSpots = candidateSpots
+    .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
+    .sort((a, b) => {
+      const aRank = priorityRanks.get(getSpotSelectionKey(a));
+      const bRank = priorityRanks.get(getSpotSelectionKey(b));
+      return aRank - bRank;
+    });
+
+  if (!mustSpots.length) return null;
+
+  const visitedIds = new Set();
+  const routeSpots = [];
+  let distanceKm = 0;
+  let minutes = 0;
+  let cursor = { lat: origin.lat, lng: origin.lng };
+
+  mustSpots.forEach((spot) => {
+    if (visitedIds.has(spot.id)) return;
+
+    const legKm = haversineKm(cursor.lat, cursor.lng, spot.lat, spot.lng);
+    const addedMinutes = travelMinutes(legKm) + spot.stayMin;
+    if (minutes + addedMinutes > maxMinutes) return;
+
+    routeSpots.push(spot);
+    visitedIds.add(spot.id);
+    distanceKm += legKm;
+    minutes += addedMinutes;
+    cursor = spot;
+  });
+
+  if (!routeSpots.length) return null;
+
+  while (true) {
+    const next = findBestNextSpot(
+      cursor,
+      visitedIds,
+      candidateSpots,
+      minutes,
+      maxMinutes,
+      priorityRanks
+    );
+    if (!next) break;
+
+    visitedIds.add(next.id);
+    routeSpots.push(next);
+    const segmentKm = haversineKm(cursor.lat, cursor.lng, next.lat, next.lng);
+    distanceKm += segmentKm;
+    minutes += next.stayMin + travelMinutes(segmentKm);
+    cursor = next;
+  }
+
+  const selectedHits = routeSpots.reduce((count, spot) => {
+    return count + (priorityRanks.has(getSpotSelectionKey(spot)) ? 1 : 0);
+  }, 0);
+
+  return {
+    spots: routeSpots,
+    totalMinutes: minutes,
+    totalDistanceKm: distanceKm,
+    selectedHits,
+    label: "여기는 꼭 코스",
+    isMust: true
+  };
 }
 
 function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes, priorityRanks) {
@@ -805,32 +881,26 @@ function renderSelectedPlaces() {
   selectedPlaceList.innerHTML = "";
 
   if (!selectedPlaces.length) {
-    selectedPlaceList.innerHTML = "<div class=\"selected-empty\">지도에서 장소를 선택해보세요</div>";
+    selectedPlaceList.innerHTML = "<div class=\"selected-empty\">근처 장소에서 '꼭 가기'로 추가해보세요</div>";
     return;
   }
 
+  const list = document.createElement("div");
+  list.className = "selected-simple-list";
+
   selectedPlaces.forEach((place, idx) => {
-    const card = document.createElement("article");
-    card.className = "selected-place-item";
-
-    const metaText = [place.categoryLabel || `권장 체류 ${place.stayMin}분`, place.address]
-      .filter(Boolean)
-      .join(" · ");
-
-    card.innerHTML = `
-      <div class="selected-item-top">
-        <span class="selected-index">${idx + 1}</span>
-        <strong class="selected-name">${escapeHtml(place.name)}</strong>
-      </div>
-      <p class="selected-meta">${escapeHtml(metaText)}</p>
-      <div class="selected-actions">
-        <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
-        <button type="button" class="selected-action-btn danger" data-action="remove">삭제</button>
-      </div>
+    const row = document.createElement("div");
+    row.className = "selected-simple-item";
+    row.innerHTML = `
+      <button type="button" class="selected-simple-main" data-action="focus">
+        <span class="selected-simple-index">${idx + 1}</span>
+        <span class="selected-simple-name">${escapeHtml(place.name)}</span>
+      </button>
+      <button type="button" class="selected-simple-remove" data-action="remove" aria-label="${escapeHtml(place.name)} 삭제">×</button>
     `;
 
-    const focusButton = card.querySelector("[data-action=\"focus\"]");
-    const removeButton = card.querySelector("[data-action=\"remove\"]");
+    const focusButton = row.querySelector("[data-action=\"focus\"]");
+    const removeButton = row.querySelector("[data-action=\"remove\"]");
 
     if (focusButton) {
       focusButton.addEventListener("click", () => {
@@ -844,8 +914,10 @@ function renderSelectedPlaces() {
       });
     }
 
-    selectedPlaceList.appendChild(card);
+    list.appendChild(row);
   });
+
+  selectedPlaceList.appendChild(list);
 }
 
 function removeSelectedPlace(placeKey) {
@@ -914,7 +986,7 @@ function renderNearbyPlaces() {
       .join(" · ");
     const ratingLabel = getSpotRatingLabel(spot);
     const blogCountLabel = getSpotBlogCountLabel(spot);
-    const kidGuideSummary = buildKidGuideSummary(spot);
+    const placeFeature = buildPlaceFeatureSummary(spot);
     const quickLinkItems = [];
     const phoneMarkup = buildPhoneMarkup(spot.telephone);
     if (phoneMarkup) {
@@ -937,14 +1009,7 @@ function renderNearbyPlaces() {
     const photoMarkup = spot.photoThumbnail
       ? `<a class="nearby-photo-link" href="${escapeHtml(imageTargetUrl)}" target="_blank" rel="noopener noreferrer"><img class="nearby-photo" src="${escapeHtml(spot.photoThumbnail)}" alt="${escapeHtml(spot.name)} 사진"></a>`
       : "<div class=\"nearby-photo-placeholder\">사진 없음</div>";
-    const kidGuideMarkup = `
-      <div class="nearby-kid-summary">
-        <p class="nearby-kid-summary-title">아이와 함께 한눈 요약</p>
-        <p class="nearby-kid-summary-line"><span class="nearby-kid-summary-label">놀이</span>${escapeHtml(kidGuideSummary.play)}</p>
-        <p class="nearby-kid-summary-line"><span class="nearby-kid-summary-label">서비스</span>${escapeHtml(kidGuideSummary.service)}</p>
-        <p class="nearby-kid-summary-line"><span class="nearby-kid-summary-label">혜택</span>${escapeHtml(kidGuideSummary.benefit)}</p>
-      </div>
-    `;
+    const selectLabel = selectedKeys.has(key) ? "선택됨" : "꼭 가기";
 
     card.innerHTML = `
       <div class="nearby-item-main">
@@ -961,13 +1026,13 @@ function renderNearbyPlaces() {
             ${blogCountLinkMarkup}
           </div>
           <p class="nearby-place-meta">${escapeHtml(locationMeta || "주소 정보 없음")}</p>
+          <p class="nearby-place-feature"><span class="nearby-feature-label">특징</span>${escapeHtml(placeFeature)}</p>
         </div>
       </div>
       ${quickLinksMarkup}
-      ${kidGuideMarkup}
       <div class="nearby-actions">
         <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
-        <button type="button" class="selected-action-btn" data-action="select">선택</button>
+        <button type="button" class="selected-action-btn" data-action="select">${selectLabel}</button>
       </div>
     `;
 
@@ -1015,7 +1080,7 @@ function buildMetricLinkMarkup(href, label, className) {
   return `<a class="${className} nearby-metric-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
 }
 
-function buildKidGuideSummary(spot) {
+function buildPlaceFeatureSummary(spot) {
   const sourceText = [
     spot.name || "",
     spot.categoryLabel || "",
@@ -1028,25 +1093,8 @@ function buildKidGuideSummary(spot) {
     .toLowerCase();
 
   const hasKeyword = (...keywords) => keywords.some((keyword) => sourceText.includes(keyword));
-  const play = [];
   const service = [];
   const benefit = [];
-
-  if (hasKeyword("키즈카페", "실내놀이터", "놀이방", "볼풀", "트램폴린", "정글짐", "미끄럼틀")) {
-    pushUniqueSummary(play, "실내 놀이시설 중심으로 시간을 보내기 좋아요");
-  }
-  if (hasKeyword("체험", "클래스", "공방", "만들기", "미술", "쿠킹", "과학", "오감")) {
-    pushUniqueSummary(play, "체험형 놀이와 만들기 활동을 함께 즐길 수 있어요");
-  }
-  if (hasKeyword("공원", "놀이터", "야외", "산책", "숲")) {
-    pushUniqueSummary(play, "야외 놀이와 산책 동선을 만들기 좋아요");
-  }
-  if (hasKeyword("도서관", "그림책", "독서", "책놀이")) {
-    pushUniqueSummary(play, "조용한 독서/책놀이 활동과 병행하기 좋아요");
-  }
-  if (!play.length) {
-    pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
-  }
 
   if (hasKeyword("수유실", "기저귀", "기저귀교환", "유아휴게", "수유")) {
     pushUniqueSummary(service, "수유/기저귀 교환 등 영유아 편의시설을 기대할 수 있어요");
@@ -1060,8 +1108,11 @@ function buildKidGuideSummary(spot) {
   if (hasKeyword("예약", "네이버예약", "사전예약", "타임권")) {
     pushUniqueSummary(service, "사전 예약 후 대기 시간을 줄여 방문하기 좋아요");
   }
+  if (hasKeyword("키즈존", "어린이", "유아", "놀이", "체험")) {
+    pushUniqueSummary(service, "아이 동반 방문을 고려한 체험/놀이 요소가 안내돼요");
+  }
   if (!service.length) {
-    pushUniqueSummary(service, "방문 전 운영시간과 유아 동반 가능 여부를 확인해 주세요");
+    pushUniqueSummary(service, "유아 동반 가능 여부와 편의시설을 확인하고 방문하면 좋아요");
   }
 
   if (hasKeyword("할인", "이벤트", "쿠폰", "패키지", "무료", "혜택")) {
@@ -1073,15 +1124,14 @@ function buildKidGuideSummary(spot) {
   if (Array.isArray(spot.blogReviews) && spot.blogReviews.length > 0) {
     pushUniqueSummary(benefit, "블로그 후기에서 실제 이용 동선과 분위기를 미리 파악할 수 있어요");
   }
+  if (Number.isFinite(spot.blogReviewTotal) && spot.blogReviewTotal >= 20) {
+    pushUniqueSummary(benefit, "후기 수가 비교적 많아 방문 전 참고 정보가 충분한 편이에요");
+  }
   if (!benefit.length) {
     pushUniqueSummary(benefit, "근처 장소와 묶어 반나절 코스로 구성하기 좋아요");
   }
 
-  return {
-    play: play.slice(0, 1).join(" "),
-    service: service.slice(0, 1).join(" "),
-    benefit: benefit.slice(0, 1).join(" ")
-  };
+  return [...service, ...benefit].slice(0, 2).join(" · ");
 }
 
 function pushUniqueSummary(collection, item) {
