@@ -10,6 +10,7 @@ const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+const PUBLIC_NEARBY_QUERIES = ["근처 공원", "가족 정원", "유적지", "어린이 박물관"];
 const CAFE_NEARBY_QUERIES = ["키즈카페", "유아 동반 카페"];
 const RESTAURANT_NEARBY_QUERIES = ["가족 식당", "키즈 메뉴 식당"];
 const SPOT_TYPE_COLORS = {
@@ -40,7 +41,9 @@ const staticSpots = [
   { id: "s7", name: "물놀이 광장", lat: 37.578, lng: 126.986, minAge: 20, maxAge: 72, stayMin: 40, type: "outdoor" },
   { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" },
   { id: "s9", name: "키즈 브런치 카페", lat: 37.573, lng: 126.981, minAge: 12, maxAge: 72, stayMin: 40, type: "cafe" },
-  { id: "s10", name: "아이랑 편한 가족 식당", lat: 37.568, lng: 126.982, minAge: 12, maxAge: 72, stayMin: 50, type: "restaurant" }
+  { id: "s10", name: "아이랑 편한 가족 식당", lat: 37.568, lng: 126.982, minAge: 12, maxAge: 72, stayMin: 50, type: "restaurant" },
+  { id: "s11", name: "도심 어린이 정원", lat: 37.570, lng: 126.974, minAge: 12, maxAge: 72, stayMin: 35, type: "garden" },
+  { id: "s12", name: "역사 유적 산책길", lat: 37.565, lng: 126.977, minAge: 18, maxAge: 72, stayMin: 40, type: "heritage" }
 ];
 
 let spots = [...staticSpots];
@@ -256,20 +259,25 @@ function getNearbyProxyUrl() {
 }
 
 function getNearbyQueries() {
-  const queries = [];
+  const baseQueries = [];
   const configured = window.NAVER_LOCAL_SEARCH_QUERIES;
 
   if (Array.isArray(configured)) {
     const cleaned = configured
       .map((item) => String(item).trim())
       .filter(Boolean);
-    queries.push(...cleaned);
+    baseQueries.push(...cleaned);
   } else {
-    queries.push(...BASE_NEARBY_QUERIES);
+    baseQueries.push(...BASE_NEARBY_QUERIES);
   }
-  if (!queries.length) {
-    queries.push(...BASE_NEARBY_QUERIES);
+  if (!baseQueries.length) {
+    baseQueries.push(...BASE_NEARBY_QUERIES);
   }
+
+  const queries = [
+    ...baseQueries,
+    ...PUBLIC_NEARBY_QUERIES
+  ];
 
   if (isCafeIncludedInCourse()) {
     queries.push(...CAFE_NEARBY_QUERIES);
@@ -279,7 +287,7 @@ function getNearbyQueries() {
   }
 
   const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
-  return unique.slice(0, 8);
+  return unique.slice(0, 10);
 }
 
 function isCafeIncludedInCourse() {
@@ -1407,11 +1415,11 @@ function buildPlaceFeatureSummary(spot) {
   if (hasKeyword("체험", "클래스", "공방", "만들기", "미술", "쿠킹", "과학", "오감")) {
     pushUniqueSummary(play, "체험형 놀이와 만들기 활동을 함께 즐길 수 있어요");
   }
-  if (hasKeyword("공원", "놀이터", "야외", "산책", "숲")) {
-    pushUniqueSummary(play, "야외 놀이와 산책 동선을 만들기 좋아요");
+  if (hasKeyword("공원", "놀이터", "야외", "산책", "숲", "정원", "유적", "유적지")) {
+    pushUniqueSummary(play, "야외 놀이와 산책, 공공장소 탐방 동선을 만들기 좋아요");
   }
-  if (hasKeyword("도서관", "그림책", "독서", "책놀이")) {
-    pushUniqueSummary(play, "조용한 독서/책놀이 활동과 병행하기 좋아요");
+  if (hasKeyword("도서관", "그림책", "독서", "책놀이", "박물관", "미술관", "기념관")) {
+    pushUniqueSummary(play, "도서관/박물관처럼 배움형 공공장소와 함께 구성하기 좋아요");
   }
   if (hasKeyword("카페", "브런치", "디저트", "커피")) {
     pushUniqueSummary(play, "놀이 전후에 쉬어가기 좋은 카페 동선으로 묶기 좋아요");
