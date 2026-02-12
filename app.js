@@ -9,6 +9,19 @@ const NAVER_MAP_SUBMODULES = "geocoder";
 const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
+const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+const CAFE_NEARBY_QUERIES = ["키즈카페", "유아 동반 카페"];
+const RESTAURANT_NEARBY_QUERIES = ["가족 식당", "키즈 메뉴 식당"];
+const SPOT_TYPE_COLORS = {
+  default: SPOT_COLOR,
+  cafe: "#2f80ed",
+  restaurant: "#ff8f3d"
+};
+const SPOT_TYPE_ACTIVE_COLORS = {
+  default: ACTIVE_SPOT_COLOR,
+  cafe: "#1f5fb8",
+  restaurant: "#d96a1d"
+};
 const ROUTE_STRATEGIES = [
   { key: "closestFromHere", label: "여기서 가까운 코스" },
   { key: "clusterNearby", label: "가까운 장소끼리 코스" },
@@ -25,7 +38,9 @@ const staticSpots = [
   { id: "s5", name: "유모차 산책 공원길", lat: 37.567, lng: 126.988, minAge: 12, maxAge: 72, stayMin: 30, type: "park" },
   { id: "s6", name: "동물 먹이 체험장", lat: 37.562, lng: 126.982, minAge: 24, maxAge: 72, stayMin: 50, type: "experience" },
   { id: "s7", name: "물놀이 광장", lat: 37.578, lng: 126.986, minAge: 20, maxAge: 72, stayMin: 40, type: "outdoor" },
-  { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" }
+  { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" },
+  { id: "s9", name: "키즈 브런치 카페", lat: 37.573, lng: 126.981, minAge: 12, maxAge: 72, stayMin: 40, type: "cafe" },
+  { id: "s10", name: "아이랑 편한 가족 식당", lat: 37.568, lng: 126.982, minAge: 12, maxAge: 72, stayMin: 50, type: "restaurant" }
 ];
 
 let spots = [...staticSpots];
@@ -34,6 +49,8 @@ const distanceKmInput = document.getElementById("distanceKm");
 const distanceValue = document.getElementById("distanceValue");
 const timeMinutesInput = document.getElementById("timeMinutes");
 const timeValue = document.getElementById("timeValue");
+const includeCafeInput = document.getElementById("includeCafe");
+const includeRestaurantInput = document.getElementById("includeRestaurant");
 const useLocationBtn = document.getElementById("useLocationBtn");
 const suggestBtn = document.getElementById("suggestBtn");
 const routeList = document.getElementById("routeList");
@@ -87,6 +104,14 @@ function bindUiEvents() {
 
   suggestBtn.addEventListener("click", async () => {
     await syncNearbyAndRender();
+  });
+
+  [includeCafeInput, includeRestaurantInput].forEach((input) => {
+    if (!input) return;
+    input.addEventListener("change", async () => {
+      resetRecommendationView();
+      await syncNearbyAndRender();
+    });
   });
 }
 
@@ -231,14 +256,38 @@ function getNearbyProxyUrl() {
 }
 
 function getNearbyQueries() {
+  const queries = [];
   const configured = window.NAVER_LOCAL_SEARCH_QUERIES;
+
   if (Array.isArray(configured)) {
     const cleaned = configured
       .map((item) => String(item).trim())
       .filter(Boolean);
-    if (cleaned.length) return cleaned;
+    queries.push(...cleaned);
+  } else {
+    queries.push(...BASE_NEARBY_QUERIES);
   }
-  return ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+  if (!queries.length) {
+    queries.push(...BASE_NEARBY_QUERIES);
+  }
+
+  if (isCafeIncludedInCourse()) {
+    queries.push(...CAFE_NEARBY_QUERIES);
+  }
+  if (isRestaurantIncludedInCourse()) {
+    queries.push(...RESTAURANT_NEARBY_QUERIES);
+  }
+
+  const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
+  return unique.slice(0, 8);
+}
+
+function isCafeIncludedInCourse() {
+  return includeCafeInput ? Boolean(includeCafeInput.checked) : true;
+}
+
+function isRestaurantIncludedInCourse() {
+  return includeRestaurantInput ? Boolean(includeRestaurantInput.checked) : true;
 }
 
 async function refreshNearbySpots() {
@@ -325,6 +374,7 @@ function toLiveSpot(item, idx, maxDistanceKm) {
   if (distanceKm > maxDistanceKm + 0.8) return null;
 
   const categoryLabel = stripHtml(item.category || "");
+  const spotType = detectSpotType(name, categoryLabel);
   const stayMin = estimateStayMinutes(name, categoryLabel);
   const blogReviewTotal = Number(item.blogReviewTotal || 0);
   const ratingEstimated = Number(item.ratingEstimated);
@@ -338,7 +388,7 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     minAge: 12,
     maxAge: 72,
     stayMin,
-    type: "nearby",
+    type: spotType,
     categoryLabel,
     categoryMain: extractPrimaryCategory(categoryLabel),
     address: stripHtml(item.roadAddress || item.address || ""),
@@ -429,7 +479,21 @@ function estimateStayMinutes(name, category) {
   if (text.includes("체험") || text.includes("박물관")) return 45;
   if (text.includes("놀이터") || text.includes("공원")) return 35;
   if (text.includes("카페")) return 40;
+  if (text.includes("식당") || text.includes("레스토랑") || text.includes("음식")) return 50;
   return 30;
+}
+
+function detectSpotType(name, categoryLabel) {
+  const text = `${name} ${categoryLabel}`.toLowerCase();
+  const includesAny = (keywords) => keywords.some((keyword) => text.includes(keyword));
+
+  if (includesAny(["카페", "커피", "디저트", "브런치"])) {
+    return "cafe";
+  }
+  if (includesAny(["식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "피자", "치킨"])) {
+    return "restaurant";
+  }
+  return "nearby";
 }
 
 function extractPrimaryCategory(categoryLabel) {
@@ -481,7 +545,7 @@ function renderSpotMarkers() {
       map,
       position: toLatLng(spot),
       title: spot.name,
-      icon: buildCircleMarkerIcon(SPOT_COLOR)
+      icon: buildCircleMarkerIcon(getSpotMarkerColor(spot))
     });
 
     const secondaryText = spot.categoryLabel || "권장 체류";
@@ -590,8 +654,20 @@ function filterCandidateSpots(origin, maxKm) {
   return spots.filter((spot) => {
     const ageMatch = spot.minAge <= KID_AGE_MAX_MONTHS && spot.maxAge >= KID_AGE_MIN_MONTHS;
     const distanceFromStart = haversineKm(origin.lat, origin.lng, spot.lat, spot.lng);
-    return ageMatch && distanceFromStart <= maxKm;
+    const typeAllowed = isSpotTypeAllowedForCourse(spot);
+    return ageMatch && distanceFromStart <= maxKm && typeAllowed;
   });
+}
+
+function isSpotTypeAllowedForCourse(spot) {
+  const typeKey = getSpotTypeKey(spot);
+  if (typeKey === "cafe" && !isCafeIncludedInCourse()) {
+    return false;
+  }
+  if (typeKey === "restaurant" && !isRestaurantIncludedInCourse()) {
+    return false;
+  }
+  return true;
 }
 
 function getPriorityRanks(candidateSpots) {
@@ -817,28 +893,36 @@ function scoreSpotByStrategy(strategy, spot, origin, current, candidateSpots, ro
   const popularityScore = getPopularityScore(spot);
   const indoorScore = getIndoorThemeScore(spot);
   const outdoorScore = getOutdoorThemeScore(spot);
+  const kidSuitabilityScore = getKidSuitabilityScore(spot);
+  const diningBonus = getDiningPreferenceBonus(spot);
   const priorityRank = priorityRanks.get(getSpotSelectionKey(spot));
   const priorityBonus = priorityRank === undefined ? 0 : Math.max(80, 250 - (priorityRank * 22));
 
   switch (strategy.key) {
     case "closestFromHere":
       if (isSeed) {
-        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + priorityBonus;
+        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + (kidSuitabilityScore * 3) + diningBonus + priorityBonus;
       }
-      return 150 - (fromOriginKm * 26) - (fromCurrentKm * 16) - (clusterKm * 5) + (popularityScore * 2) + priorityBonus;
+      return 150 - (fromOriginKm * 26) - (fromCurrentKm * 16) - (clusterKm * 5)
+        + (popularityScore * 2) + (kidSuitabilityScore * 2.4) + diningBonus + priorityBonus;
     case "clusterNearby":
       if (isSeed) {
-        return (densityScore * 26) - (fromOriginKm * 12) + (popularityScore * 2) + priorityBonus;
+        return (densityScore * 26) - (fromOriginKm * 12) + (popularityScore * 2)
+          + (kidSuitabilityScore * 2.2) + diningBonus + priorityBonus;
       }
-      return (densityScore * 30) - (fromCurrentKm * 22) - (clusterKm * 18) - (fromOriginKm * 5) + priorityBonus;
+      return (densityScore * 30) - (fromCurrentKm * 22) - (clusterKm * 18) - (fromOriginKm * 5)
+        + (kidSuitabilityScore * 2.2) + diningBonus + priorityBonus;
     case "mostPopular":
-      return (popularityScore * 30) - (fromCurrentKm * 12) - (fromOriginKm * 4) + (densityScore * 2) + priorityBonus;
+      return (popularityScore * 30) - (fromCurrentKm * 12) - (fromOriginKm * 4) + (densityScore * 2)
+        + (kidSuitabilityScore * 4) + diningBonus + priorityBonus;
     case "indoorPlay":
-      return (indoorScore * 32) + (popularityScore * 8) - (fromCurrentKm * 13) - (fromOriginKm * 5) + (densityScore * 2) + priorityBonus;
+      return (indoorScore * 32) + (popularityScore * 8) - (fromCurrentKm * 13) - (fromOriginKm * 5)
+        + (densityScore * 2) + (kidSuitabilityScore * 3.2) + diningBonus + priorityBonus;
     case "outdoorNature":
-      return (outdoorScore * 32) + (popularityScore * 6) - (fromCurrentKm * 12) - (fromOriginKm * 5) + (densityScore * 2) + priorityBonus;
+      return (outdoorScore * 32) + (popularityScore * 6) - (fromCurrentKm * 12) - (fromOriginKm * 5)
+        + (densityScore * 2) + (kidSuitabilityScore * 2.8) + diningBonus + priorityBonus;
     default:
-      return (popularityScore * 8) - (fromCurrentKm * 10) + priorityBonus;
+      return (popularityScore * 8) + (kidSuitabilityScore * 2.4) + diningBonus - (fromCurrentKm * 10) + priorityBonus;
   }
 }
 
@@ -901,15 +985,61 @@ function getThemeTokenScore(text, tokens, weight) {
   return matchedCount * weight;
 }
 
+function getKidSuitabilityScore(spot) {
+  const text = buildSpotSearchText(spot);
+  const positiveKeywords = [
+    "키즈", "유아", "아기", "아이", "어린이", "가족", "패밀리", "수유실",
+    "유아의자", "아기의자", "키즈존", "놀이방", "키즈메뉴", "유모차"
+  ];
+  const cautionKeywords = ["노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥"];
+  let score = getThemeTokenScore(text, positiveKeywords, 1.4);
+  score -= getThemeTokenScore(text, cautionKeywords, 2.4);
+
+  const typeKey = getSpotTypeKey(spot);
+  if (typeKey === "cafe" || typeKey === "restaurant") {
+    score += getThemeTokenScore(text, ["키즈", "유아", "가족", "키즈메뉴", "아기의자"], 1.1);
+  }
+  return score;
+}
+
+function getDiningPreferenceBonus(spot) {
+  const typeKey = getSpotTypeKey(spot);
+  if (typeKey === "cafe" && isCafeIncludedInCourse()) return 9;
+  if (typeKey === "restaurant" && isRestaurantIncludedInCourse()) return 10;
+  return 0;
+}
+
 function buildSpotSearchText(spot) {
+  const reviewText = Array.isArray(spot.blogReviews)
+    ? spot.blogReviews
+      .map((review) => `${review?.title || ""} ${review?.description || ""}`)
+      .join(" ")
+    : "";
+
   return [
     String(spot.name || ""),
     String(spot.type || ""),
     String(spot.categoryLabel || ""),
-    String(spot.address || "")
+    String(spot.address || ""),
+    reviewText
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function getSpotTypeKey(spot) {
+  const type = String(spot?.type || "").toLowerCase();
+  if (type === "cafe") return "cafe";
+  if (type === "restaurant") return "restaurant";
+  return "default";
+}
+
+function getSpotMarkerColor(spot, isActive = false) {
+  const typeKey = getSpotTypeKey(spot);
+  if (isActive) {
+    return SPOT_TYPE_ACTIVE_COLORS[typeKey] || SPOT_TYPE_ACTIVE_COLORS.default;
+  }
+  return SPOT_TYPE_COLORS[typeKey] || SPOT_TYPE_COLORS.default;
 }
 
 function drawRoute(route) {
@@ -934,13 +1064,14 @@ function drawRoute(route) {
   route.spots.forEach((spot) => {
     const marker = spotMarkers.get(spot.id);
     if (!marker) return;
-    marker.setIcon(buildCircleMarkerIcon(ACTIVE_SPOT_COLOR));
+    marker.setIcon(buildCircleMarkerIcon(getSpotMarkerColor(spot, true)));
   });
 }
 
 function resetSpotStyles() {
-  spotMarkers.forEach((marker) => {
-    marker.setIcon(buildCircleMarkerIcon(SPOT_COLOR));
+  spotMarkers.forEach((marker, spotId) => {
+    const spot = spots.find((item) => item.id === spotId);
+    marker.setIcon(buildCircleMarkerIcon(getSpotMarkerColor(spot)));
   });
 }
 
@@ -1144,7 +1275,8 @@ function renderNearbyPlaces() {
     const key = getSpotSelectionKey(spot);
     card.className = `nearby-place-item${selectedKeys.has(key) ? " active" : ""}`;
 
-    const categoryText = spot.categoryMain || spot.categoryLabel || "장소";
+    const categoryText = getSpotCategoryChipText(spot);
+    const spotTypeClass = getSpotTypeKey(spot);
     const distanceText = formatDistanceText(spot.distanceKm);
     const locationMeta = [spot.address || "", distanceText]
       .filter(Boolean)
@@ -1184,7 +1316,7 @@ function renderNearbyPlaces() {
         <div class="nearby-item-content">
           <div class="nearby-title-row">
             <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
-            <span class="nearby-category-chip">${escapeHtml(categoryText)}</span>
+            <span class="nearby-category-chip ${spotTypeClass}">${escapeHtml(categoryText)}</span>
           </div>
           <div class="nearby-metric-row">
             ${ratingLinkMarkup}
@@ -1219,6 +1351,13 @@ function renderNearbyPlaces() {
 
     nearbyPlaceList.appendChild(card);
   });
+}
+
+function getSpotCategoryChipText(spot) {
+  const typeKey = getSpotTypeKey(spot);
+  if (typeKey === "cafe") return "카페";
+  if (typeKey === "restaurant") return "음식점";
+  return spot.categoryMain || spot.categoryLabel || "장소";
 }
 
 function getSpotRatingLabel(spot) {
@@ -1274,6 +1413,12 @@ function buildPlaceFeatureSummary(spot) {
   if (hasKeyword("도서관", "그림책", "독서", "책놀이")) {
     pushUniqueSummary(play, "조용한 독서/책놀이 활동과 병행하기 좋아요");
   }
+  if (hasKeyword("카페", "브런치", "디저트", "커피")) {
+    pushUniqueSummary(play, "놀이 전후에 쉬어가기 좋은 카페 동선으로 묶기 좋아요");
+  }
+  if (hasKeyword("식당", "레스토랑", "한식", "양식", "분식", "푸드")) {
+    pushUniqueSummary(play, "놀이와 식사를 한 번에 계획하기 좋은 식사 코스예요");
+  }
   if (!play.length) {
     pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
   }
@@ -1283,6 +1428,9 @@ function buildPlaceFeatureSummary(spot) {
   }
   if (hasKeyword("생일", "파티", "단체")) {
     pushUniqueSummary(benefit, "생일/소규모 모임 코스로 활용하기 좋아요");
+  }
+  if (hasKeyword("아기의자", "유아의자", "수유실", "키즈메뉴", "유모차")) {
+    pushUniqueSummary(benefit, "아이 동반 편의시설(아기의자·수유실·키즈메뉴 등) 여부를 확인하기 좋아요");
   }
   if (Array.isArray(spot.blogReviews) && spot.blogReviews.length > 0) {
     pushUniqueSummary(benefit, "블로그 후기에서 실제 이용 동선과 분위기를 미리 파악할 수 있어요");

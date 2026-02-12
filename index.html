@@ -38,6 +38,23 @@
           </div>
         </div>
 
+        <div class="course-option-row">
+          <label class="course-option-chip" for="includeCafe">
+            <input id="includeCafe" type="checkbox" checked>
+            <span>카페 포함</span>
+          </label>
+          <label class="course-option-chip" for="includeRestaurant">
+            <input id="includeRestaurant" type="checkbox" checked>
+            <span>음식점 포함</span>
+          </label>
+        </div>
+
+        <div class="marker-legend">
+          <span class="legend-item"><span class="legend-dot default"></span>기본 장소</span>
+          <span class="legend-item"><span class="legend-dot cafe"></span>카페</span>
+          <span class="legend-item"><span class="legend-dot restaurant"></span>음식점</span>
+        </div>
+
         <button id="suggestBtn" type="button" class="primary search-btn">코스 검색</button>
       </section>
 
@@ -81,8 +98,8 @@
   <script>
     window.NAVER_MAP_KEY_ID = "9kgxkrzdb5";
     window.NAVER_LOCAL_PROXY_URL = "https://thoughtt1-kidson-proxy.onrender.com/api/nearby-places";
-    window.NAVER_LOCAL_SEARCH_QUERIES = ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+    window.NAVER_LOCAL_SEARCH_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
   </script>
-  <script src="./app.js?v=must-only-mode-20260212"></script>
+  <script src="./app.js?v=cafe-restaurant-course-option-20260212"></script>
 </body>
 </html>
