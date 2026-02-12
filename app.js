@@ -10,10 +10,11 @@ const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
-const PUBLIC_NEARBY_QUERIES = ["근처 공원", "가족 정원", "유적지", "어린이 박물관"];
+const PUBLIC_NEARBY_QUERIES = ["공원", "정원", "한강공원", "유적지", "박물관", "어린이박물관"];
 const CAFE_NEARBY_QUERIES = ["키즈카페", "유아 동반 카페"];
 const RESTAURANT_NEARBY_QUERIES = ["가족 식당", "키즈 메뉴 식당"];
 const EVENT_NEARBY_QUERIES = ["어린이 공연", "가족 축제", "키즈 행사"];
+const MIN_PUBLIC_PLACE_RESULTS = 3;
 const SPOT_TYPE_COLORS = {
   default: SPOT_COLOR,
   cafe: "#2f80ed",
@@ -46,7 +47,8 @@ const staticSpots = [
   { id: "s9", name: "키즈 브런치 카페", lat: 37.573, lng: 126.981, minAge: 12, maxAge: 72, stayMin: 40, type: "cafe" },
   { id: "s10", name: "아이랑 편한 가족 식당", lat: 37.568, lng: 126.982, minAge: 12, maxAge: 72, stayMin: 50, type: "restaurant" },
   { id: "s11", name: "도심 어린이 정원", lat: 37.570, lng: 126.974, minAge: 12, maxAge: 72, stayMin: 35, type: "garden" },
-  { id: "s12", name: "역사 유적 산책길", lat: 37.565, lng: 126.977, minAge: 18, maxAge: 72, stayMin: 40, type: "heritage" }
+  { id: "s12", name: "역사 유적 산책길", lat: 37.565, lng: 126.977, minAge: 18, maxAge: 72, stayMin: 40, type: "heritage" },
+  { id: "s13", name: "한강 가족공원", lat: 37.531, lng: 126.932, minAge: 12, maxAge: 72, stayMin: 45, type: "park" }
 ];
 
 let spots = [...staticSpots];
@@ -344,10 +346,11 @@ async function refreshNearbySpots() {
 
     const payload = await response.json();
     const liveSpots = normalizeNearbyItems(payload.items || [], Number(distanceKmInput.value));
+    const mergedSpots = ensurePublicPlaceCoverage(liveSpots, Number(distanceKmInput.value));
 
-    if (liveSpots.length) {
-      spots = liveSpots;
-      setResultsCaption(`지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요 (${liveSpots.length}곳 반영)`);
+    if (mergedSpots.length) {
+      spots = mergedSpots;
+      setResultsCaption(`지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요 (${mergedSpots.length}곳 반영)`);
     } else {
       spots = [...staticSpots];
       setResultsCaption("근처 검색 결과가 없어 기본 추천 코스를 보여드려요");
@@ -377,6 +380,62 @@ function normalizeNearbyItems(items, maxDistanceKm) {
   });
 
   return [...deduped.values()].slice(0, 30);
+}
+
+function ensurePublicPlaceCoverage(nearbySpots, maxDistanceKm) {
+  const list = Array.isArray(nearbySpots) ? [...nearbySpots] : [];
+  const publicCount = list.filter((spot) => isPublicPlaceSpot(spot)).length;
+  if (publicCount >= MIN_PUBLIC_PLACE_RESULTS) {
+    return list;
+  }
+
+  const needed = MIN_PUBLIC_PLACE_RESULTS - publicCount;
+  const existingKeys = new Set(list.map((spot) => getSpotSelectionKey(spot)));
+  const fallbackCandidates = staticSpots
+    .filter((spot) => isPublicPlaceSpot(spot))
+    .map((spot) => toFallbackNearbySpot(spot))
+    .filter((spot) => {
+      const key = getSpotSelectionKey(spot);
+      if (existingKeys.has(key)) return false;
+      const distanceKm = Number.isFinite(spot.distanceKm)
+        ? spot.distanceKm
+        : haversineKm(startPoint.lat, startPoint.lng, spot.lat, spot.lng);
+      return distanceKm <= (maxDistanceKm + 0.8);
+    })
+    .sort((a, b) => {
+      const aDistance = Number.isFinite(a.distanceKm) ? a.distanceKm : Number.POSITIVE_INFINITY;
+      const bDistance = Number.isFinite(b.distanceKm) ? b.distanceKm : Number.POSITIVE_INFINITY;
+      return aDistance - bDistance;
+    })
+    .slice(0, needed);
+
+  fallbackCandidates.forEach((spot) => {
+    existingKeys.add(getSpotSelectionKey(spot));
+    list.push(spot);
+  });
+
+  return list;
+}
+
+function toFallbackNearbySpot(spot) {
+  const distanceKm = haversineKm(startPoint.lat, startPoint.lng, spot.lat, spot.lng);
+
+  return {
+    ...spot,
+    categoryLabel: spot.categoryLabel || spot.name,
+    categoryMain: spot.categoryMain || extractPrimaryCategory(spot.categoryLabel || ""),
+    address: spot.address || "",
+    telephone: spot.telephone || "",
+    placeLink: spot.placeLink || "",
+    reviewLink: spot.reviewLink || spot.placeLink || "",
+    blogReviewLink: spot.blogReviewLink || spot.placeLink || "",
+    photoThumbnail: spot.photoThumbnail || "",
+    photoLink: spot.photoLink || "",
+    blogReviewTotal: Number.isFinite(spot.blogReviewTotal) ? spot.blogReviewTotal : 0,
+    ratingEstimated: Number.isFinite(spot.ratingEstimated) ? spot.ratingEstimated : null,
+    blogReviews: Array.isArray(spot.blogReviews) ? spot.blogReviews : [],
+    distanceKm: Math.round(distanceKm * 10) / 10
+  };
 }
 
 function toLiveSpot(item, idx, maxDistanceKm) {
@@ -517,6 +576,17 @@ function detectSpotType(name, categoryLabel) {
     return "event";
   }
   return "nearby";
+}
+
+function isPublicPlaceSpot(spot) {
+  const type = String(spot?.type || "").toLowerCase();
+  if (["park", "garden", "heritage", "museum", "outdoor", "library"].includes(type)) {
+    return true;
+  }
+
+  const text = `${spot?.name || ""} ${spot?.categoryLabel || ""} ${spot?.categoryMain || ""}`.toLowerCase();
+  const keywords = ["공원", "정원", "한강", "유적", "박물관", "미술관", "기념관", "산책"];
+  return keywords.some((keyword) => text.includes(keyword));
 }
 
 function extractPrimaryCategory(categoryLabel) {
