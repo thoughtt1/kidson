@@ -34,6 +34,8 @@ const mapElement = document.getElementById("map");
 const resultsCaption = document.getElementById("resultsCaption");
 const selectedPlaceList = document.getElementById("selectedPlaceList");
 const clearSelectedBtn = document.getElementById("clearSelectedBtn");
+const nearbyPlaceList = document.getElementById("nearbyPlaceList");
+const nearbyCount = document.getElementById("nearbyCount");
 
 let startPoint = { ...DEFAULT_CENTER };
 let map = null;
@@ -49,6 +51,7 @@ redrawStartArea();
 timeValue.textContent = timeMinutesInput.value;
 setResultsCaption(DEFAULT_RESULTS_CAPTION);
 renderSelectedPlaces();
+renderNearbyPlaces();
 renderSuggestions();
 bootstrapNaverMap();
 
@@ -407,6 +410,7 @@ function renderSpotMarkers() {
 
   syncSelectedPlacesWithCurrentSpots();
   renderSelectedPlaces();
+  renderNearbyPlaces();
 }
 
 function rerenderSpotMarkers() {
@@ -718,11 +722,13 @@ function recordSelectedSpot(spot) {
   }
 
   renderSelectedPlaces();
+  renderNearbyPlaces();
 }
 
 function clearSelectedPlaces() {
   selectedPlaces.length = 0;
   renderSelectedPlaces();
+  renderNearbyPlaces();
 }
 
 function getSpotSelectionKey(spot) {
@@ -798,30 +804,90 @@ function removeSelectedPlace(placeKey) {
   if (index < 0) return;
   selectedPlaces.splice(index, 1);
   renderSelectedPlaces();
+  renderNearbyPlaces();
 }
 
 function focusSelectedPlace(place) {
+  focusSpotById(place.spotId, place.key);
+}
+
+function focusSpotById(spotId, placeKey = "") {
   if (!map || !window.naver || !window.naver.maps) return;
 
-  const target = new naver.maps.LatLng(place.lat, place.lng);
-  map.panTo(target);
-
-  let marker = spotMarkers.get(place.spotId);
-  if (!marker) {
-    const matchedSpot = spots.find((spot) => getSpotSelectionKey(spot) === place.key);
-    if (matchedSpot) {
-      marker = spotMarkers.get(matchedSpot.id);
-      place.spotId = matchedSpot.id;
-    }
+  let targetSpot = spots.find((spot) => spot.id === spotId);
+  if (!targetSpot && placeKey) {
+    targetSpot = spots.find((spot) => getSpotSelectionKey(spot) === placeKey);
   }
+  if (!targetSpot) return;
 
+  map.panTo(toLatLng(targetSpot));
+
+  const marker = spotMarkers.get(targetSpot.id);
   if (!marker) return;
 
-  const infoWindow = spotInfoWindows.get(place.spotId);
+  const infoWindow = spotInfoWindows.get(targetSpot.id);
   if (!infoWindow) return;
 
   spotInfoWindows.forEach((popup) => popup.close());
   infoWindow.open(map, marker);
+}
+
+function getSelectedPlaceKeySet() {
+  return new Set(selectedPlaces.map((place) => place.key));
+}
+
+function renderNearbyPlaces() {
+  if (!nearbyPlaceList) return;
+
+  nearbyPlaceList.innerHTML = "";
+
+  const count = spots.length;
+  if (nearbyCount) {
+    nearbyCount.textContent = `${count}곳`;
+  }
+
+  if (!count) {
+    nearbyPlaceList.innerHTML = "<div class=\"nearby-empty\">근처 상가 정보가 없습니다</div>";
+    return;
+  }
+
+  const selectedKeys = getSelectedPlaceKeySet();
+
+  spots.forEach((spot) => {
+    const card = document.createElement("article");
+    const key = getSpotSelectionKey(spot);
+    card.className = `nearby-place-item${selectedKeys.has(key) ? " active" : ""}`;
+
+    const meta = [spot.categoryLabel || `권장 체류 ${spot.stayMin}분`, spot.address || ""]
+      .filter(Boolean)
+      .join(" · ");
+
+    card.innerHTML = `
+      <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
+      <p class="nearby-place-meta">${escapeHtml(meta)}</p>
+      <div class="nearby-actions">
+        <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
+        <button type="button" class="selected-action-btn" data-action="select">선택</button>
+      </div>
+    `;
+
+    const focusButton = card.querySelector("[data-action=\"focus\"]");
+    const selectButton = card.querySelector("[data-action=\"select\"]");
+
+    if (focusButton) {
+      focusButton.addEventListener("click", () => {
+        focusSpotById(spot.id, key);
+      });
+    }
+
+    if (selectButton) {
+      selectButton.addEventListener("click", () => {
+        recordSelectedSpot(spot);
+      });
+    }
+
+    nearbyPlaceList.appendChild(card);
+  });
 }
 
 function showMapSetupMessage(message) {

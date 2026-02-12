@@ -270,9 +270,9 @@ button:disabled {
   right: 14px;
   width: 290px;
   max-height: calc(100% - 28px);
-  min-height: 180px;
+  min-height: 320px;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   overflow: hidden;
   border: 1px solid #d8e1ea;
   border-radius: 12px;
@@ -285,8 +285,7 @@ button:disabled {
 .selected-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-start;
   padding: 10px 12px;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -296,6 +295,38 @@ button:disabled {
   font-size: 14px;
   font-weight: 800;
   color: #0f172a;
+}
+
+.selected-section,
+.nearby-section {
+  min-height: 0;
+  display: grid;
+}
+
+.selected-section {
+  grid-template-rows: auto minmax(86px, 170px);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.nearby-section {
+  grid-template-rows: auto 1fr;
+}
+
+.selected-section-head,
+.nearby-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.selected-section-head h4,
+.nearby-section-head h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
 }
 
 .selected-reset-btn {
@@ -311,6 +342,12 @@ button:disabled {
   font-size: 11px;
   font-weight: 700;
   box-shadow: none;
+}
+
+.nearby-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1f7a43;
 }
 
 .selected-place-list {
@@ -398,6 +435,56 @@ button:disabled {
   color: #64748b;
 }
 
+.nearby-place-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.nearby-place-item {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid #e1e8ef;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.nearby-place-item.active {
+  border-color: #bde5cc;
+  box-shadow: 0 0 0 1px rgba(3, 199, 90, 0.18) inset;
+}
+
+.nearby-place-name {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.nearby-place-meta {
+  margin: 0;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.nearby-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.nearby-empty {
+  margin: 0;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+}
+
 #map {
   width: 100%;
   height: 100%;
@@ -455,6 +542,10 @@ button:disabled {
     right: 10px;
     width: min(290px, calc(100% - 20px));
     max-height: min(58%, calc(100% - 20px));
+  }
+
+  .selected-section {
+    grid-template-rows: auto minmax(70px, 120px);
   }
 
   .controls-row {

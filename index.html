@@ -54,12 +54,26 @@
       <div id="map"></div>
       <aside class="map-selected-panel">
         <div class="selected-head">
-          <h3>선택한 장소</h3>
-          <button id="clearSelectedBtn" type="button" class="selected-reset-btn">초기화</button>
+          <h3>지도 상가 정보</h3>
         </div>
-        <div id="selectedPlaceList" class="selected-place-list">
-          <div class="selected-empty">지도에서 장소를 선택해보세요</div>
-        </div>
+        <section class="selected-section">
+          <div class="selected-section-head">
+            <h4>선택한 장소</h4>
+            <button id="clearSelectedBtn" type="button" class="selected-reset-btn">초기화</button>
+          </div>
+          <div id="selectedPlaceList" class="selected-place-list">
+            <div class="selected-empty">지도에서 장소를 선택해보세요</div>
+          </div>
+        </section>
+        <section class="nearby-section">
+          <div class="nearby-section-head">
+            <h4>근처 상가</h4>
+            <span id="nearbyCount" class="nearby-count">0곳</span>
+          </div>
+          <div id="nearbyPlaceList" class="nearby-place-list">
+            <div class="nearby-empty">상가 정보를 불러오는 중...</div>
+          </div>
+        </section>
       </aside>
     </section>
   </main>
@@ -69,6 +83,6 @@
     window.NAVER_LOCAL_PROXY_URL = "https://thoughtt1-kidson-proxy.onrender.com/api/nearby-places";
     window.NAVER_LOCAL_SEARCH_QUERIES = ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
   </script>
-  <script src="./app.js?v=no-radius-20260212"></script>
+  <script src="./app.js?v=nearby-menu-20260212"></script>
 </body>
 </html>
