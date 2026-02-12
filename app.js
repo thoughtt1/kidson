@@ -38,7 +38,6 @@ const clearSelectedBtn = document.getElementById("clearSelectedBtn");
 let startPoint = { ...DEFAULT_CENTER };
 let map = null;
 let startMarker = null;
-let radiusCircle = null;
 let routePolyline = null;
 let isFetchingNearby = false;
 const selectedPlaces = [];
@@ -156,17 +155,6 @@ function initializeMap() {
     map,
     position: toLatLng(startPoint),
     title: "출발 지점"
-  });
-
-  radiusCircle = new naver.maps.Circle({
-    map,
-    center: toLatLng(startPoint),
-    radius: Number(distanceKmInput.value) * 1000,
-    strokeColor: "#0071e3",
-    strokeOpacity: 0.9,
-    strokeWeight: 2,
-    fillColor: "#0071e3",
-    fillOpacity: 0.12
   });
 
   renderSpotMarkers();
@@ -434,14 +422,10 @@ function clearSpotMarkers() {
 }
 
 function redrawStartArea() {
-  if (!map || !startMarker || !radiusCircle || !window.naver || !window.naver.maps) return;
-
-  const radiusMeters = Number(distanceKmInput.value) * 1000;
+  if (!map || !startMarker || !window.naver || !window.naver.maps) return;
   const center = toLatLng(startPoint);
 
   startMarker.setPosition(center);
-  radiusCircle.setCenter(center);
-  radiusCircle.setRadius(radiusMeters);
 }
 
 function renderSuggestions() {
