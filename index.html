@@ -47,12 +47,17 @@
             <input id="includeRestaurant" type="checkbox" checked>
             <span>+식당</span>
           </label>
+          <label class="course-option-chip" for="includeEvent">
+            <input id="includeEvent" type="checkbox" checked>
+            <span>+행사</span>
+          </label>
         </div>
 
         <div class="marker-legend">
           <span class="legend-item"><span class="legend-dot default"></span>기본 장소</span>
           <span class="legend-item"><span class="legend-dot cafe"></span>카페</span>
           <span class="legend-item"><span class="legend-dot restaurant"></span>음식점</span>
+          <span class="legend-item"><span class="legend-dot event"></span>행사</span>
         </div>
 
         <button id="suggestBtn" type="button" class="primary search-btn">코스 검색</button>
@@ -100,6 +105,6 @@
     window.NAVER_LOCAL_PROXY_URL = "https://thoughtt1-kidson-proxy.onrender.com/api/nearby-places";
     window.NAVER_LOCAL_SEARCH_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
   </script>
-  <script src="./app.js?v=public-place-plus-dining-20260212"></script>
+  <script src="./app.js?v=event-option-20260212"></script>
 </body>
 </html>

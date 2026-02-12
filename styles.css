@@ -147,6 +147,10 @@ body {
   background: #ff8f3d;
 }
 
+.legend-dot.event {
+  background: #d94660;
+}
+
 .control-group + .control-group {
   margin-top: 8px;
 }
@@ -644,6 +648,12 @@ button:disabled {
   color: #a85318;
   background: #fff2e8;
   border-color: #ffd7bd;
+}
+
+.nearby-category-chip.event {
+  color: #9f1e45;
+  background: #ffedf2;
+  border-color: #ffc8d5;
 }
 
 .nearby-metric-row {
