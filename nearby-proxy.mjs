@@ -4,6 +4,23 @@ const PORT = Number(process.env.PORT || 8787);
 const NAVER_CLIENT_ID = (process.env.NAVER_SEARCH_CLIENT_ID || "").trim();
 const NAVER_CLIENT_SECRET = (process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim();
 const DEFAULT_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터", "공원"];
+const PLAY_KEYWORDS = [
+  "놀이터", "놀이", "체험", "박물관", "도서관", "공원", "숲", "산책",
+  "야외", "자연", "과학관", "미술관", "동물", "유적", "광장", "한강",
+  "실내", "체육관", "공예", "공방", "만들기"
+];
+const KID_KEYWORDS = [
+  "어린이", "유아", "아이", "아기", "키즈", "가족", "유모차", "수유실"
+];
+const KID_UNSUITABLE_KEYWORDS = [
+  "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥",
+  "오피스", "사무실", "병원", "약국", "성형", "치과", "정형외과"
+];
+const GARDEN_KEYWORDS = ["정원", "가든", "수목원", "식물원"];
+const GARDEN_KID_EVIDENCE_KEYWORDS = [
+  "어린이", "유아", "아이", "아기", "가족", "놀이터", "놀이", "체험",
+  "산책", "야외", "숲", "피크닉", "유모차", "키즈"
+];
 const MAX_DETAIL_ITEMS = 12;
 const MAX_RESULTS = 30;
 const MAX_WEBKR_DISPLAY = 5;
@@ -87,7 +104,7 @@ function parseQueries(raw) {
     .split(",")
     .map((q) => q.trim())
     .filter(Boolean)
-    .filter((query) => !isExcludedActivityText(query.toLowerCase()));
+    .filter((query) => !isExcludedSearchQuery(query));
   return queries.length ? queries : DEFAULT_QUERIES;
 }
 
@@ -178,6 +195,8 @@ async function searchNearbyFromNaver({
     }
   }
 
+  places = places.filter((place) => isKidPlaySuitablePlace(place, { allowUnverifiedGarden: true }));
+
   places.sort((a, b) => {
     const distanceA = Number.isFinite(a.distanceKm) ? a.distanceKm : Number.POSITIVE_INFINITY;
     const distanceB = Number.isFinite(b.distanceKm) ? b.distanceKm : Number.POSITIVE_INFINITY;
@@ -220,6 +239,8 @@ async function searchNearbyFromNaver({
     place.ratingEstimated = detail.ratingEstimated;
     place.ratingSource = "estimated_from_blog_reviews";
   }));
+
+  places = places.filter((place) => isKidPlaySuitablePlace(place));
 
   return {
     items: places,
@@ -264,20 +285,108 @@ function normalizeLocalItem(item, originLat, originLng) {
 }
 
 function shouldExcludeItem(title, category, roadAddress, address) {
-  const text = [title, category, roadAddress, address]
+  const text = buildFilterText(title, category, roadAddress, address);
+  if (isExcludedActivityText(text)) return true;
+  if (isPhotoRelatedText(text)) return true;
+  if (isEducationFacilityText(text)) return true;
+  return false;
+}
+
+function isExcludedSearchQuery(query) {
+  const text = buildFilterText(query);
+  if (!text) return true;
+  if (isExcludedActivityText(text)) return true;
+  if (isPhotoRelatedText(text)) return true;
+  return false;
+}
+
+function buildFilterText(...values) {
+  return values
     .map((value) => String(value || "").toLowerCase().trim())
     .filter(Boolean)
     .join(" ");
-  return isExcludedActivityText(text);
+}
+
+function hasAnyKeyword(text, keywords) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function countKeywordMatches(text, keywords) {
+  return keywords.reduce((count, keyword) => count + (text.includes(keyword) ? 1 : 0), 0);
 }
 
 function isExcludedActivityText(text) {
-  const keywords = [
+  return hasAnyKeyword(text, [
     "카페", "커피", "디저트", "브런치",
     "식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "치킨", "피자", "버거", "패스트푸드",
     "행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회"
-  ];
-  return keywords.some((keyword) => text.includes(keyword));
+  ]);
+}
+
+function isPhotoRelatedText(text) {
+  return hasAnyKeyword(text, [
+    "사진관", "사진 스튜디오", "사진스튜디오", "포토스튜디오",
+    "프로필 촬영", "셀프사진관", "사진촬영", "증명사진",
+    "인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처", "포토매틱", "셀픽스",
+    "사진", "포토부스", "스냅"
+  ]);
+}
+
+function isEducationFacilityText(text) {
+  return hasAnyKeyword(text, [
+    "학원", "교습소", "공부방", "어학원", "교육원", "영어유치원",
+    "어린이집", "유치원", "초등학교", "중학교", "고등학교"
+  ]);
+}
+
+function containsGardenKeyword(text) {
+  return hasAnyKeyword(text, GARDEN_KEYWORDS);
+}
+
+function extractBlogReviewText(reviews) {
+  if (!Array.isArray(reviews)) return "";
+  return reviews
+    .flatMap((review) => [review?.title || "", review?.description || ""])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function isGardenWithoutKidEvidence(baseText, blogText, allowUnverifiedGarden = false) {
+  if (!containsGardenKeyword(baseText)) return false;
+  if (!blogText) {
+    return !allowUnverifiedGarden;
+  }
+  const evidenceText = buildFilterText(baseText, blogText);
+  return !hasAnyKeyword(evidenceText, GARDEN_KID_EVIDENCE_KEYWORDS);
+}
+
+function isKidPlaySuitablePlace(place, options = {}) {
+  const allowUnverifiedGarden = Boolean(options.allowUnverifiedGarden);
+  const baseText = buildFilterText(
+    place?.title || "",
+    place?.category || "",
+    place?.roadAddress || "",
+    place?.address || "",
+    place?.description || ""
+  );
+  const blogText = extractBlogReviewText(place?.blogReviews);
+  const text = buildFilterText(baseText, blogText);
+
+  if (!text) return false;
+  if (isExcludedActivityText(text)) return false;
+  if (isPhotoRelatedText(text)) return false;
+  if (isEducationFacilityText(text)) return false;
+  if (isGardenWithoutKidEvidence(baseText, blogText, allowUnverifiedGarden)) return false;
+
+  const playCount = countKeywordMatches(text, PLAY_KEYWORDS);
+  const kidCount = countKeywordMatches(text, KID_KEYWORDS);
+  const cautionCount = countKeywordMatches(text, KID_UNSUITABLE_KEYWORDS);
+  const score = (playCount * 2.2) + (kidCount * 1.3) - (cautionCount * 2.4);
+
+  if (playCount === 0 && kidCount === 0) return false;
+  return score >= 1.8;
 }
 
 function toLatLngFromItem(item) {

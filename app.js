@@ -10,8 +10,7 @@ const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
-const PUBLIC_NEARBY_QUERIES = ["공원", "정원", "한강공원", "유적지", "박물관", "어린이박물관"];
-const PHOTO_PLAY_NEARBY_QUERIES = ["인생네컷", "포토이즘"];
+const PUBLIC_NEARBY_QUERIES = ["공원", "한강공원", "유적지", "박물관", "어린이박물관"];
 const MIN_PUBLIC_PLACE_RESULTS = 3;
 const ROUTE_STRATEGIES = [
   { key: "closestFromHere", label: "여기서 가까운 코스" },
@@ -30,7 +29,6 @@ const staticSpots = [
   { id: "s6", name: "동물 먹이 체험장", lat: 37.562, lng: 126.982, minAge: 24, maxAge: 72, stayMin: 50, type: "experience" },
   { id: "s7", name: "물놀이 광장", lat: 37.578, lng: 126.986, minAge: 20, maxAge: 72, stayMin: 40, type: "outdoor" },
   { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" },
-  { id: "s11", name: "도심 어린이 정원", lat: 37.570, lng: 126.974, minAge: 12, maxAge: 72, stayMin: 35, type: "garden" },
   { id: "s12", name: "역사 유적 산책길", lat: 37.565, lng: 126.977, minAge: 18, maxAge: 72, stayMin: 40, type: "heritage" },
   { id: "s13", name: "한강 가족공원", lat: 37.531, lng: 126.932, minAge: 12, maxAge: 72, stayMin: 45, type: "park" }
 ];
@@ -255,8 +253,7 @@ function getNearbyQueries() {
 
   const queries = [];
   queries.push(...baseQueries.slice(0, 4));
-  queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 3));
-  queries.push(...PHOTO_PLAY_NEARBY_QUERIES.slice(0, 1));
+  queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 4));
 
   const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
   return unique.slice(0, 8);
@@ -404,14 +401,14 @@ function toLiveSpot(item, idx, maxDistanceKm) {
 
   const categoryLabel = stripHtml(item.category || "");
   const address = stripHtml(item.roadAddress || item.address || "");
-  if (shouldExcludePlaceFromList(name, categoryLabel, address)) return null;
+  const blogReviewTotal = Number(item.blogReviewTotal || 0);
+  const blogReviews = normalizeBlogReviews(item.blogReviews);
+  if (shouldExcludePlaceFromList(name, categoryLabel, address, { blogReviews })) return null;
 
   const spotType = detectSpotType(name, categoryLabel);
   if (isExcludedSpotType(spotType)) return null;
   const stayMin = estimateStayMinutes(name, categoryLabel);
-  const blogReviewTotal = Number(item.blogReviewTotal || 0);
   const ratingEstimated = Number(item.ratingEstimated);
-  const blogReviews = normalizeBlogReviews(item.blogReviews);
 
   return {
     id: `live-${idx}-${Math.round(coords.lat * 1000000)}-${Math.round(coords.lng * 1000000)}`,
@@ -534,19 +531,22 @@ function isExcludedSpotType(type) {
   return type === "cafe" || type === "restaurant" || type === "event";
 }
 
-function shouldExcludePlaceFromList(name, categoryLabel, address = "") {
-  const text = buildPlaceSearchText(name, categoryLabel, address);
+function shouldExcludePlaceFromList(name, categoryLabel, address = "", options = {}) {
+  const blogText = extractBlogReviewText(options.blogReviews);
+  const text = buildPlaceSearchText(name, categoryLabel, address, blogText);
 
   if (isExcludedActivityText(text)) return true;
+  if (isPhotoRelatedText(text)) return true;
   if (isEducationFacilityText(text)) return true;
-  if (isPhotoStudioText(text) && !isLifePhotoBoothText(text)) return true;
+  if (isGardenWithoutKidEvidence(text, blogText)) return true;
   if (isParkLikeButNotOutdoor(text)) return true;
+  if (!isKidPlaySuitableText(text)) return true;
 
   return false;
 }
 
-function buildPlaceSearchText(name, categoryLabel, address = "") {
-  return `${name || ""} ${categoryLabel || ""} ${address || ""}`
+function buildPlaceSearchText(name, categoryLabel, address = "", extraText = "") {
+  return `${name || ""} ${categoryLabel || ""} ${address || ""} ${extraText || ""}`
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -571,16 +571,64 @@ function isEducationFacilityText(text) {
   ]);
 }
 
-function isLifePhotoBoothText(text) {
+function isPhotoRelatedText(text) {
   return hasAnyKeyword(text, [
-    "인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처", "포토매틱", "셀픽스"
+    "사진관", "사진 스튜디오", "사진스튜디오", "포토스튜디오",
+    "프로필 촬영", "셀프사진관", "사진촬영", "증명사진",
+    "인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처", "포토매틱", "셀픽스",
+    "사진", "포토부스", "스냅"
   ]);
 }
 
-function isPhotoStudioText(text) {
-  return hasAnyKeyword(text, [
-    "사진관", "사진 스튜디오", "사진스튜디오", "포토스튜디오", "프로필 촬영", "셀프사진관", "사진촬영", "증명사진"
+function extractBlogReviewText(reviews) {
+  if (!Array.isArray(reviews)) return "";
+  return reviews
+    .flatMap((review) => [review?.title || "", review?.description || ""])
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isGardenWithoutKidEvidence(baseText, blogText) {
+  if (!hasAnyKeyword(baseText, ["정원", "가든", "수목원", "식물원"])) {
+    return false;
+  }
+  if (!blogText) {
+    return true;
+  }
+  const evidenceText = `${baseText} ${blogText}`;
+  return !hasAnyKeyword(evidenceText, [
+    "어린이", "유아", "아이", "아기", "가족", "놀이터", "놀이", "체험",
+    "산책", "야외", "숲", "피크닉", "유모차", "키즈"
   ]);
+}
+
+function countKeywordMatches(text, keywords) {
+  return keywords.reduce((count, keyword) => count + (text.includes(keyword) ? 1 : 0), 0);
+}
+
+function isKidPlaySuitableText(text) {
+  const playKeywords = [
+    "놀이터", "놀이", "체험", "박물관", "도서관", "공원", "숲", "산책",
+    "야외", "자연", "키즈", "가족공원", "과학관", "미술관", "동물",
+    "실내", "체육관", "공예", "공방", "만들기"
+  ];
+  const kidKeywords = [
+    "어린이", "유아", "아이", "아기", "키즈", "가족", "유모차", "수유실"
+  ];
+  const cautionKeywords = [
+    "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥", "오피스",
+    "사무실", "병원", "약국", "성형", "치과", "정형외과"
+  ];
+
+  const playCount = countKeywordMatches(text, playKeywords);
+  const kidCount = countKeywordMatches(text, kidKeywords);
+  const cautionCount = countKeywordMatches(text, cautionKeywords);
+  const score = (playCount * 2.2) + (kidCount * 1.3) - (cautionCount * 2.4);
+
+  if (playCount === 0 && kidCount === 0) return false;
+  return score >= 1.8;
 }
 
 function isParkLikeButNotOutdoor(text) {
@@ -598,7 +646,7 @@ function isParkLikeButNotOutdoor(text) {
 }
 
 function isPublicPlaceSpot(spot) {
-  if (shouldExcludePlaceFromList(spot?.name || "", spot?.categoryLabel || "", spot?.address || "")) {
+  if (shouldExcludePlaceFromList(spot?.name || "", spot?.categoryLabel || "", spot?.address || "", { blogReviews: spot?.blogReviews })) {
     return false;
   }
 
@@ -770,7 +818,13 @@ function filterCandidateSpots(origin, maxKm) {
   return spots.filter((spot) => {
     const ageMatch = spot.minAge <= KID_AGE_MAX_MONTHS && spot.maxAge >= KID_AGE_MIN_MONTHS;
     const distanceFromStart = haversineKm(origin.lat, origin.lng, spot.lat, spot.lng);
-    return ageMatch && distanceFromStart <= maxKm;
+    const excluded = shouldExcludePlaceFromList(
+      spot?.name || "",
+      spot?.categoryLabel || "",
+      spot?.address || "",
+      { blogReviews: spot?.blogReviews }
+    );
+    return ageMatch && distanceFromStart <= maxKm && !excluded;
   });
 }
 
@@ -1063,7 +1117,7 @@ function getIndoorThemeScore(spot) {
   if (["indoor", "library", "museum", "creative"].includes(String(spot.type || "").toLowerCase())) {
     score += 2.4;
   }
-  score += getThemeTokenScore(text, ["실내", "키즈카페", "체험", "도서관", "박물관", "스튜디오", "공방", "만들기"], 2.2);
+  score += getThemeTokenScore(text, ["실내", "체험", "도서관", "박물관", "공방", "만들기"], 2.2);
   score += getThemeTokenScore(text, ["수유실", "유모차", "주차", "편의시설"], 0.8);
 
   return score;
@@ -1490,9 +1544,6 @@ function buildPlaceFeatureSummary(spot) {
   }
   if (hasKeyword("도서관", "그림책", "독서", "책놀이", "박물관", "미술관", "기념관")) {
     pushUniqueSummary(play, "도서관/박물관처럼 배움형 공공장소와 함께 구성하기 좋아요");
-  }
-  if (hasKeyword("인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처")) {
-    pushUniqueSummary(play, "인생네컷 같은 포토 놀이를 짧게 넣기 좋은 코스예요");
   }
   if (!play.length) {
     pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
