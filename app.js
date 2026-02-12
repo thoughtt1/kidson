@@ -3,6 +3,10 @@ const KID_AGE_MAX_MONTHS = 72;
 const WALKING_KMH = 3.8;
 const MAX_COURSE_SUGGESTIONS = 5;
 const DEFAULT_AVAILABLE_MINUTES = 150;
+const DEFAULT_CENTER = { lat: 37.5715, lng: 126.978 };
+const NAVER_MAP_SCRIPT_URL = "https://oapi.map.naver.com/openapi/v3/maps.js";
+const SPOT_COLOR = "#43a563";
+const ACTIVE_SPOT_COLOR = "#1f6a40";
 
 const spots = [
   { id: "s1", name: "강변 놀이터", lat: 37.574, lng: 126.976, minAge: 12, maxAge: 72, stayMin: 35, type: "playground" },
@@ -15,45 +19,6 @@ const spots = [
   { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" }
 ];
 
-if (typeof L === "undefined") {
-  alert("무료 지도 라이브러리(Leaflet) 로딩에 실패했습니다.");
-}
-
-const map = L.map("map", {
-  zoomControl: false
-}).setView([37.5715, 126.978], 14);
-
-L.control.zoom({ position: "bottomright" }).addTo(map);
-
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "&copy; OpenStreetMap contributors"
-}).addTo(map);
-
-let startPoint = { lat: 37.5715, lng: 126.978 };
-let startMarker = L.marker([startPoint.lat, startPoint.lng], { title: "출발 지점" }).addTo(map);
-let radiusCircle = L.circle([startPoint.lat, startPoint.lng], {
-  radius: 3000,
-  color: "#0071e3",
-  weight: 2,
-  fillColor: "#0071e3",
-  fillOpacity: 0.1
-}).addTo(map);
-
-let routePolyline = null;
-const spotMarkers = new Map();
-
-spots.forEach((spot) => {
-  const marker = L.circleMarker([spot.lat, spot.lng], {
-    radius: 7,
-    color: "#ffffff",
-    weight: 2,
-    fillColor: "#43a563",
-    fillOpacity: 1
-  }).addTo(map);
-  marker.bindPopup(`<strong>${spot.name}</strong><br>권장 체류: ${spot.stayMin}분`);
-  spotMarkers.set(spot.id, marker);
-});
-
 const distanceKmInput = document.getElementById("distanceKm");
 const distanceValue = document.getElementById("distanceValue");
 const timeMinutesInput = document.getElementById("timeMinutes");
@@ -61,46 +26,171 @@ const timeValue = document.getElementById("timeValue");
 const useLocationBtn = document.getElementById("useLocationBtn");
 const suggestBtn = document.getElementById("suggestBtn");
 const routeList = document.getElementById("routeList");
+const mapElement = document.getElementById("map");
 
-distanceKmInput.addEventListener("input", () => {
-  distanceValue.textContent = distanceKmInput.value;
-  redrawStartArea();
-  renderSuggestions();
-});
+let startPoint = { ...DEFAULT_CENTER };
+let map = null;
+let startMarker = null;
+let radiusCircle = null;
+let routePolyline = null;
+const spotMarkers = new Map();
+const spotInfoWindows = new Map();
 
-timeMinutesInput.addEventListener("input", () => {
-  timeValue.textContent = timeMinutesInput.value;
-  renderSuggestions();
-});
+bindUiEvents();
+redrawStartArea();
+timeValue.textContent = timeMinutesInput.value;
+renderSuggestions();
+bootstrapNaverMap();
 
-map.on("click", (event) => {
-  startPoint = { lat: event.latlng.lat, lng: event.latlng.lng };
-  redrawStartArea();
-  renderSuggestions();
-});
+function bindUiEvents() {
+  distanceKmInput.addEventListener("input", () => {
+    distanceValue.textContent = distanceKmInput.value;
+    redrawStartArea();
+    renderSuggestions();
+  });
 
-useLocationBtn.addEventListener("click", () => {
-  if (!navigator.geolocation) {
-    alert("현재 브라우저에서 위치 정보를 지원하지 않습니다.");
+  timeMinutesInput.addEventListener("input", () => {
+    timeValue.textContent = timeMinutesInput.value;
+    renderSuggestions();
+  });
+
+  useLocationBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      alert("현재 브라우저에서 위치 정보를 지원하지 않습니다.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        startPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
+        if (map && window.naver && window.naver.maps) {
+          map.setCenter(toLatLng(startPoint));
+          map.setZoom(14, true);
+        }
+        redrawStartArea();
+        renderSuggestions();
+      },
+      () => alert("현재 위치를 가져오지 못했습니다. 지도 중심 기준으로 추천합니다.")
+    );
+  });
+
+  suggestBtn.addEventListener("click", renderSuggestions);
+}
+
+async function bootstrapNaverMap() {
+  const clientId = getNaverClientId();
+  if (!clientId || clientId === "YOUR_NCP_CLIENT_ID") {
+    showMapSetupMessage("네이버 지도 Client ID를 입력하면 지도가 표시됩니다.");
     return;
   }
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      startPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
-      map.setView([startPoint.lat, startPoint.lng], 14);
-      redrawStartArea();
-      renderSuggestions();
-    },
-    () => alert("현재 위치를 가져오지 못했습니다. 지도 중심 기준으로 추천합니다.")
-  );
-});
 
-suggestBtn.addEventListener("click", renderSuggestions);
+  try {
+    await loadNaverMapScript(clientId);
+    initializeMap();
+    redrawStartArea();
+    renderSuggestions();
+  } catch (error) {
+    console.error(error);
+    showMapSetupMessage("네이버 지도 로딩에 실패했습니다. Client ID와 서비스 URL을 확인해 주세요.");
+  }
+}
+
+function getNaverClientId() {
+  const fromWindow = typeof window.NAVER_MAP_CLIENT_ID === "string" ? window.NAVER_MAP_CLIENT_ID.trim() : "";
+  return fromWindow;
+}
+
+function loadNaverMapScript(clientId) {
+  if (window.naver && window.naver.maps) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `${NAVER_MAP_SCRIPT_URL}?ncpClientId=${encodeURIComponent(clientId)}`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Naver map script load failed"));
+    document.head.appendChild(script);
+  });
+}
+
+function initializeMap() {
+  if (!window.naver || !window.naver.maps) {
+    throw new Error("Naver map SDK is unavailable.");
+  }
+
+  map = new naver.maps.Map("map", {
+    center: toLatLng(startPoint),
+    zoom: 14,
+    zoomControl: true,
+    zoomControlOptions: {
+      position: naver.maps.Position.BOTTOM_RIGHT
+    },
+    mapDataControl: false,
+    scaleControl: false
+  });
+
+  startMarker = new naver.maps.Marker({
+    map,
+    position: toLatLng(startPoint),
+    title: "출발 지점"
+  });
+
+  radiusCircle = new naver.maps.Circle({
+    map,
+    center: toLatLng(startPoint),
+    radius: Number(distanceKmInput.value) * 1000,
+    strokeColor: "#0071e3",
+    strokeOpacity: 0.9,
+    strokeWeight: 2,
+    fillColor: "#0071e3",
+    fillOpacity: 0.12
+  });
+
+  renderSpotMarkers();
+
+  naver.maps.Event.addListener(map, "click", (event) => {
+    startPoint = {
+      lat: event.coord.lat(),
+      lng: event.coord.lng()
+    };
+    redrawStartArea();
+    renderSuggestions();
+  });
+}
+
+function renderSpotMarkers() {
+  spots.forEach((spot) => {
+    const marker = new naver.maps.Marker({
+      map,
+      position: toLatLng(spot),
+      title: spot.name,
+      icon: buildCircleMarkerIcon(SPOT_COLOR)
+    });
+
+    const infoWindow = new naver.maps.InfoWindow({
+      content: `<div class="map-infowindow"><strong>${escapeHtml(spot.name)}</strong><br>권장 체류: ${spot.stayMin}분</div>`
+    });
+
+    naver.maps.Event.addListener(marker, "click", () => {
+      spotInfoWindows.forEach((popup) => popup.close());
+      infoWindow.open(map, marker);
+    });
+
+    spotMarkers.set(spot.id, marker);
+    spotInfoWindows.set(spot.id, infoWindow);
+  });
+}
 
 function redrawStartArea() {
+  if (!map || !startMarker || !radiusCircle || !window.naver || !window.naver.maps) return;
+
   const radiusMeters = Number(distanceKmInput.value) * 1000;
-  startMarker.setLatLng([startPoint.lat, startPoint.lng]);
-  radiusCircle.setLatLng([startPoint.lat, startPoint.lng]);
+  const center = toLatLng(startPoint);
+
+  startMarker.setPosition(center);
+  radiusCircle.setCenter(center);
   radiusCircle.setRadius(radiusMeters);
 }
 
@@ -128,6 +218,7 @@ function renderSuggestions() {
         return `<span class="route-leg">${spot.name}${hasNext ? " →" : ""}</span>`;
       })
       .join("");
+
     card.innerHTML = `
       <div class="route-head">
         <div class="route-title">추천 코스 ${idx + 1}</div>
@@ -141,6 +232,7 @@ function renderSuggestions() {
       card.classList.add("active");
       drawRoute(route);
     });
+
     routeList.appendChild(card);
   });
 }
@@ -232,45 +324,40 @@ function deduplicateRoutes(routes) {
 }
 
 function drawRoute(route) {
+  if (!map || !window.naver || !window.naver.maps) return;
+
   clearRouteLine();
   resetSpotStyles();
 
-  const points = [[startPoint.lat, startPoint.lng], ...route.spots.map((spot) => [spot.lat, spot.lng])];
-  routePolyline = L.polyline(points, {
-    color: "#1f6a40",
-    weight: 5,
-    opacity: 0.9
-  }).addTo(map);
+  const path = [toLatLng(startPoint), ...route.spots.map((spot) => toLatLng(spot))];
+  routePolyline = new naver.maps.Polyline({
+    map,
+    path,
+    strokeColor: ACTIVE_SPOT_COLOR,
+    strokeWeight: 5,
+    strokeOpacity: 0.9
+  });
 
-  map.fitBounds(routePolyline.getBounds(), { padding: [30, 30] });
+  const bounds = new naver.maps.LatLngBounds();
+  path.forEach((point) => bounds.extend(point));
+  map.fitBounds(bounds);
 
   route.spots.forEach((spot) => {
     const marker = spotMarkers.get(spot.id);
-    marker.setStyle({
-      fillColor: "#1f6a40",
-      color: "#ffffff",
-      weight: 2,
-      radius: 8,
-      fillOpacity: 1
-    });
+    if (!marker) return;
+    marker.setIcon(buildCircleMarkerIcon(ACTIVE_SPOT_COLOR));
   });
 }
 
 function resetSpotStyles() {
   spotMarkers.forEach((marker) => {
-    marker.setStyle({
-      fillColor: "#43a563",
-      color: "#ffffff",
-      weight: 2,
-      radius: 7,
-      fillOpacity: 1
-    });
+    marker.setIcon(buildCircleMarkerIcon(SPOT_COLOR));
   });
 }
 
 function clearRouteLine() {
   if (routePolyline) {
-    map.removeLayer(routePolyline);
+    routePolyline.setMap(null);
     routePolyline = null;
   }
 }
@@ -288,6 +375,35 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-redrawStartArea();
-timeValue.textContent = timeMinutesInput.value;
-renderSuggestions();
+function toLatLng(point) {
+  return new naver.maps.LatLng(point.lat, point.lng);
+}
+
+function buildCircleMarkerIcon(fillColor) {
+  const size = 18;
+  const radius = 6;
+  const center = size / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${center}" cy="${center}" r="${radius}" fill="${fillColor}" stroke="#ffffff" stroke-width="3"/></svg>`;
+  const url = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+
+  return {
+    url,
+    size: new naver.maps.Size(size, size),
+    scaledSize: new naver.maps.Size(size, size),
+    origin: new naver.maps.Point(0, 0),
+    anchor: new naver.maps.Point(center, center)
+  };
+}
+
+function showMapSetupMessage(message) {
+  mapElement.innerHTML = `<div class="map-message">${message}</div>`;
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
