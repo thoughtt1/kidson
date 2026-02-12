@@ -495,6 +495,7 @@ function renderSuggestions() {
   );
 
   routeList.innerHTML = "";
+  routeList.scrollTop = 0;
   clearRouteLine();
   resetSpotStyles();
 
@@ -534,6 +535,13 @@ function renderSuggestions() {
 
     routeList.appendChild(card);
   });
+}
+
+function resetRecommendationView() {
+  clearRouteLine();
+  resetSpotStyles();
+  routeList.innerHTML = "<div class=\"route-card\">추천 코스를 다시 계산하고 있어요...</div>";
+  routeList.scrollTop = 0;
 }
 
 function filterCandidateSpots(origin, maxKm) {
@@ -1076,6 +1084,7 @@ function renderNearbyPlaces() {
 
     if (selectButton) {
       selectButton.addEventListener("click", () => {
+        resetRecommendationView();
         recordSelectedSpot(spot);
       });
     }
