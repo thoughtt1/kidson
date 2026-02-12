@@ -528,9 +528,6 @@ function renderSuggestions() {
   const distanceKm = Number(distanceKmInput.value);
   const maxMinutes = Number(timeMinutesInput.value) || DEFAULT_AVAILABLE_MINUTES;
   const candidates = filterCandidateSpots(startPoint, distanceKm);
-  const mustPlaceKeys = new Set(selectedPlaces.map((place) => place.key));
-  const candidateKeys = new Set(candidates.map((spot) => getSpotSelectionKey(spot)));
-  const missingMustCount = [...mustPlaceKeys].filter((key) => !candidateKeys.has(key)).length;
   const priorityRanks = getPriorityRanks(candidates);
   const mandatoryKeys = new Set(priorityRanks.keys());
   const routes = buildRouteSuggestions(
@@ -546,17 +543,8 @@ function renderSuggestions() {
   clearRouteLine();
   resetSpotStyles();
 
-  if (mustPlaceKeys.size > 0 && missingMustCount > 0) {
-    routeList.innerHTML = "<div class=\"route-card\">여기는 꼭 장소가 현재 반경 밖에 있습니다. 반경을 늘린 뒤 다시 확인해 주세요.</div>";
-    return;
-  }
-
   if (!routes.length) {
-    if (priorityRanks.size > 0) {
-      routeList.innerHTML = "<div class=\"route-card\">여기는 꼭 장소를 모두 포함할 수 없습니다. 사용 가능 시간 또는 반경을 늘려보세요.</div>";
-    } else {
-      routeList.innerHTML = "<div class=\"route-card\">설정한 거리/시간에 맞는 코스가 없습니다. 반경 또는 시간을 늘려보세요.</div>";
-    }
+    routeList.innerHTML = "<div class=\"route-card\">설정한 거리/시간에 맞는 코스가 없습니다. 반경 또는 시간을 늘려보세요.</div>";
     return;
   }
 
@@ -567,7 +555,7 @@ function renderSuggestions() {
     const stopsMarkup = route.spots
       .map((spot, spotIdx) => {
         const spotKey = getSpotSelectionKey(spot);
-        const isMustSpot = mandatoryKeys.has(spotKey);
+        const isMustSpot = Boolean(route.isMustRoute) && mandatoryKeys.has(spotKey);
         const legClass = isMustSpot ? "route-leg must-stop" : "route-leg";
         return `<span class="${legClass}">${spot.name}</span>`;
       })
@@ -628,6 +616,7 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
   const results = [];
   const strategyLimit = Math.max(1, limit);
   const strategies = ROUTE_STRATEGIES.slice(0, strategyLimit);
+  const emptyPriorityRanks = new Map();
 
   if (priorityRanks.size > 0) {
     const mustRoute = buildRouteByStrategy(
@@ -638,7 +627,8 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
       ROUTE_STRATEGIES[0],
       {
         forceMandatory: true,
-        labelOverride: "여기는 꼭 추천 코스"
+        labelOverride: "여기는 꼭 추천 코스",
+        isMustRoute: true
       }
     );
     if (mustRoute) {
@@ -647,7 +637,16 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
   }
 
   strategies.forEach((strategy) => {
-    const route = buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy);
+    const route = buildRouteByStrategy(
+      origin,
+      candidateSpots,
+      maxMinutes,
+      emptyPriorityRanks,
+      strategy,
+      {
+        isMustRoute: false
+      }
+    );
     if (!route) return;
     results.push(route);
   });
@@ -658,6 +657,7 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priori
 function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy, options = {}) {
   const forceMandatory = Boolean(options.forceMandatory);
   const labelOverride = String(options.labelOverride || "").trim();
+  const isMustRoute = Boolean(options.isMustRoute);
   const mandatorySpots = candidateSpots
     .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
     .sort((a, b) => {
@@ -753,7 +753,8 @@ function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks,
     spots: routeSpots,
     totalMinutes,
     totalDistanceKm,
-    selectedHits
+    selectedHits,
+    isMustRoute
   };
 }
 
