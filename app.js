@@ -556,9 +556,6 @@ function renderSuggestions() {
   routes.forEach((route, idx) => {
     const card = document.createElement("article");
     card.className = "route-card";
-    if (route.selectedHits > 0) {
-      card.classList.add("must-highlight");
-    }
     const selectedHitText = route.selectedHits > 0 ? ` · 꼭 ${route.selectedHits}곳 반영` : "";
     const stopsMarkup = route.spots
       .map((spot, spotIdx) => {
@@ -787,7 +784,6 @@ function buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRank
     totalMinutes: minutes,
     totalDistanceKm: distanceKm,
     selectedHits,
-    label: "여기는 꼭 코스",
     isMust: true
   };
 }
