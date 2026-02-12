@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kidson</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  >
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="service-panel">
+      <header class="panel-header">
+        <div class="logo-wrap">
+          <h1>KidSon</h1>
+          <p class="brand-subtitle">아이랑 함께 뭐하고 놀까요?</p>
+        </div>
+        <button id="useLocationBtn" type="button" class="secondary panel-location-btn">현재 위치</button>
+      </header>
+
+      <section class="panel-controls">
+        <div class="controls-row">
+          <div class="control-group">
+            <label for="distanceKm" class="control-label">
+              <span>반경</span>
+              <span class="value-chip"><span id="distanceValue">3</span>km</span>
+            </label>
+            <input id="distanceKm" type="range" min="1" max="10" value="3" step="1">
+          </div>
+
+          <div class="control-group">
+            <label for="timeMinutes" class="control-label">
+              <span>시간</span>
+              <span class="value-chip"><span id="timeValue">150</span>분</span>
+            </label>
+            <input id="timeMinutes" type="range" min="60" max="300" value="150" step="30">
+          </div>
+        </div>
+
+        <button id="suggestBtn" type="button" class="primary search-btn">코스 검색</button>
+      </section>
+
+      <section class="panel-results">
+        <div class="results-head">
+          <h2>추천 코스</h2>
+          <span class="results-caption">지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요</span>
+        </div>
+        <div id="routeList" class="route-list"></div>
+      </section>
+    </aside>
+
+    <section class="map-stage">
+      <div id="map"></div>
+    </section>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="./app.js"></script>
+</body>
+</html>
