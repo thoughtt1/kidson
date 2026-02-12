@@ -81,76 +81,6 @@ body {
   align-items: end;
 }
 
-.course-option-row {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.course-option-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid #d7e0e9;
-  background: #ffffff;
-  color: #334155;
-  font-size: 11px;
-  font-weight: 700;
-  user-select: none;
-}
-
-.course-option-chip input {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: var(--naver-green);
-}
-
-.marker-legend {
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  font-weight: 700;
-  color: #64748b;
-}
-
-.legend-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 1px solid #ffffff;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
-}
-
-.legend-dot.default {
-  background: #43a563;
-}
-
-.legend-dot.cafe {
-  background: #2f80ed;
-}
-
-.legend-dot.restaurant {
-  background: #ff8f3d;
-}
-
-.legend-dot.event {
-  background: #d94660;
-}
-
 .control-group + .control-group {
   margin-top: 8px;
 }
@@ -636,24 +566,6 @@ button:disabled {
   background: #edf8f2;
   border: 1px solid #d0ebdc;
   flex-shrink: 0;
-}
-
-.nearby-category-chip.cafe {
-  color: #1f5fb8;
-  background: #ecf3ff;
-  border-color: #cfe0ff;
-}
-
-.nearby-category-chip.restaurant {
-  color: #a85318;
-  background: #fff2e8;
-  border-color: #ffd7bd;
-}
-
-.nearby-category-chip.event {
-  color: #9f1e45;
-  background: #ffedf2;
-  border-color: #ffc8d5;
 }
 
 .nearby-metric-row {

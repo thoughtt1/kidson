@@ -3,7 +3,7 @@ import http from "node:http";
 const PORT = Number(process.env.PORT || 8787);
 const NAVER_CLIENT_ID = (process.env.NAVER_SEARCH_CLIENT_ID || "").trim();
 const NAVER_CLIENT_SECRET = (process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim();
-const DEFAULT_QUERIES = ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+const DEFAULT_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터", "공원"];
 const MAX_DETAIL_ITEMS = 12;
 const MAX_RESULTS = 30;
 const MAX_WEBKR_DISPLAY = 5;
@@ -86,7 +86,8 @@ function parseQueries(raw) {
   const queries = raw
     .split(",")
     .map((q) => q.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((query) => !isExcludedActivityText(query.toLowerCase()));
   return queries.length ? queries : DEFAULT_QUERIES;
 }
 
@@ -237,6 +238,9 @@ function normalizeLocalItem(item, originLat, originLng) {
   const roadAddress = stripHtml(item.roadAddress || "").trim();
   const address = stripHtml(item.address || "").trim();
   const category = stripHtml(item.category || "").trim();
+  if (shouldExcludeItem(title, category, roadAddress, address)) {
+    return null;
+  }
   const coords = toLatLngFromItem(item);
   const lat = coords ? coords.lat : null;
   const lng = coords ? coords.lng : null;
@@ -257,6 +261,23 @@ function normalizeLocalItem(item, originLat, originLng) {
     blogReviewLink: "",
     distanceKm: Number.isFinite(distanceKm) ? Math.round(distanceKm * 1000) / 1000 : null
   };
+}
+
+function shouldExcludeItem(title, category, roadAddress, address) {
+  const text = [title, category, roadAddress, address]
+    .map((value) => String(value || "").toLowerCase().trim())
+    .filter(Boolean)
+    .join(" ");
+  return isExcludedActivityText(text);
+}
+
+function isExcludedActivityText(text) {
+  const keywords = [
+    "카페", "커피", "디저트", "브런치",
+    "식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "치킨", "피자", "버거", "패스트푸드",
+    "행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회"
+  ];
+  return keywords.some((keyword) => text.includes(keyword));
 }
 
 function toLatLngFromItem(item) {

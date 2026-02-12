@@ -12,22 +12,7 @@ const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 �
 const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
 const PUBLIC_NEARBY_QUERIES = ["공원", "정원", "한강공원", "유적지", "박물관", "어린이박물관"];
 const PHOTO_PLAY_NEARBY_QUERIES = ["인생네컷", "포토이즘"];
-const CAFE_NEARBY_QUERIES = ["키즈카페", "유아 동반 카페"];
-const RESTAURANT_NEARBY_QUERIES = ["가족 식당", "키즈 메뉴 식당"];
-const EVENT_NEARBY_QUERIES = ["어린이 공연", "가족 축제", "키즈 행사"];
 const MIN_PUBLIC_PLACE_RESULTS = 3;
-const SPOT_TYPE_COLORS = {
-  default: SPOT_COLOR,
-  cafe: "#2f80ed",
-  restaurant: "#ff8f3d",
-  event: "#d94660"
-};
-const SPOT_TYPE_ACTIVE_COLORS = {
-  default: ACTIVE_SPOT_COLOR,
-  cafe: "#1f5fb8",
-  restaurant: "#d96a1d",
-  event: "#b42344"
-};
 const ROUTE_STRATEGIES = [
   { key: "closestFromHere", label: "여기서 가까운 코스" },
   { key: "clusterNearby", label: "가까운 장소끼리 코스" },
@@ -45,8 +30,6 @@ const staticSpots = [
   { id: "s6", name: "동물 먹이 체험장", lat: 37.562, lng: 126.982, minAge: 24, maxAge: 72, stayMin: 50, type: "experience" },
   { id: "s7", name: "물놀이 광장", lat: 37.578, lng: 126.986, minAge: 20, maxAge: 72, stayMin: 40, type: "outdoor" },
   { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" },
-  { id: "s9", name: "키즈 브런치 카페", lat: 37.573, lng: 126.981, minAge: 12, maxAge: 72, stayMin: 40, type: "cafe" },
-  { id: "s10", name: "아이랑 편한 가족 식당", lat: 37.568, lng: 126.982, minAge: 12, maxAge: 72, stayMin: 50, type: "restaurant" },
   { id: "s11", name: "도심 어린이 정원", lat: 37.570, lng: 126.974, minAge: 12, maxAge: 72, stayMin: 35, type: "garden" },
   { id: "s12", name: "역사 유적 산책길", lat: 37.565, lng: 126.977, minAge: 18, maxAge: 72, stayMin: 40, type: "heritage" },
   { id: "s13", name: "한강 가족공원", lat: 37.531, lng: 126.932, minAge: 12, maxAge: 72, stayMin: 45, type: "park" }
@@ -58,9 +41,6 @@ const distanceKmInput = document.getElementById("distanceKm");
 const distanceValue = document.getElementById("distanceValue");
 const timeMinutesInput = document.getElementById("timeMinutes");
 const timeValue = document.getElementById("timeValue");
-const includeCafeInput = document.getElementById("includeCafe");
-const includeRestaurantInput = document.getElementById("includeRestaurant");
-const includeEventInput = document.getElementById("includeEvent");
 const useLocationBtn = document.getElementById("useLocationBtn");
 const suggestBtn = document.getElementById("suggestBtn");
 const routeList = document.getElementById("routeList");
@@ -114,14 +94,6 @@ function bindUiEvents() {
 
   suggestBtn.addEventListener("click", async () => {
     await syncNearbyAndRender();
-  });
-
-  [includeCafeInput, includeRestaurantInput, includeEventInput].forEach((input) => {
-    if (!input) return;
-    input.addEventListener("change", async () => {
-      resetRecommendationView();
-      await syncNearbyAndRender();
-    });
   });
 }
 
@@ -286,30 +258,8 @@ function getNearbyQueries() {
   queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 3));
   queries.push(...PHOTO_PLAY_NEARBY_QUERIES.slice(0, 1));
 
-  if (isCafeIncludedInCourse()) {
-    queries.push(...CAFE_NEARBY_QUERIES.slice(0, 1));
-  }
-  if (isRestaurantIncludedInCourse()) {
-    queries.push(...RESTAURANT_NEARBY_QUERIES.slice(0, 1));
-  }
-  if (isEventIncludedInCourse()) {
-    queries.push(...EVENT_NEARBY_QUERIES.slice(0, 2));
-  }
-
   const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
-  return unique.slice(0, 12);
-}
-
-function isCafeIncludedInCourse() {
-  return includeCafeInput ? Boolean(includeCafeInput.checked) : true;
-}
-
-function isRestaurantIncludedInCourse() {
-  return includeRestaurantInput ? Boolean(includeRestaurantInput.checked) : true;
-}
-
-function isEventIncludedInCourse() {
-  return includeEventInput ? Boolean(includeEventInput.checked) : true;
+  return unique.slice(0, 8);
 }
 
 async function refreshNearbySpots() {
@@ -457,6 +407,7 @@ function toLiveSpot(item, idx, maxDistanceKm) {
   if (shouldExcludePlaceFromList(name, categoryLabel, address)) return null;
 
   const spotType = detectSpotType(name, categoryLabel);
+  if (isExcludedSpotType(spotType)) return null;
   const stayMin = estimateStayMinutes(name, categoryLabel);
   const blogReviewTotal = Number(item.blogReviewTotal || 0);
   const ratingEstimated = Number(item.ratingEstimated);
@@ -559,10 +510,7 @@ function estimateStayMinutes(name, category) {
   const text = `${name} ${category}`.toLowerCase();
   if (text.includes("도서관")) return 35;
   if (text.includes("체험") || text.includes("박물관")) return 45;
-  if (text.includes("행사") || text.includes("축제") || text.includes("공연") || text.includes("페스티벌")) return 60;
   if (text.includes("놀이터") || text.includes("공원")) return 35;
-  if (text.includes("카페")) return 40;
-  if (text.includes("식당") || text.includes("레스토랑") || text.includes("음식")) return 50;
   return 30;
 }
 
@@ -582,9 +530,14 @@ function detectSpotType(name, categoryLabel) {
   return "nearby";
 }
 
+function isExcludedSpotType(type) {
+  return type === "cafe" || type === "restaurant" || type === "event";
+}
+
 function shouldExcludePlaceFromList(name, categoryLabel, address = "") {
   const text = buildPlaceSearchText(name, categoryLabel, address);
 
+  if (isExcludedActivityText(text)) return true;
   if (isEducationFacilityText(text)) return true;
   if (isPhotoStudioText(text) && !isLifePhotoBoothText(text)) return true;
   if (isParkLikeButNotOutdoor(text)) return true;
@@ -601,6 +554,14 @@ function buildPlaceSearchText(name, categoryLabel, address = "") {
 
 function hasAnyKeyword(text, keywords) {
   return keywords.some((keyword) => text.includes(keyword));
+}
+
+function isExcludedActivityText(text) {
+  return hasAnyKeyword(text, [
+    "카페", "커피", "디저트", "브런치",
+    "식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "치킨", "피자", "버거",
+    "행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회"
+  ]);
 }
 
 function isEducationFacilityText(text) {
@@ -809,23 +770,8 @@ function filterCandidateSpots(origin, maxKm) {
   return spots.filter((spot) => {
     const ageMatch = spot.minAge <= KID_AGE_MAX_MONTHS && spot.maxAge >= KID_AGE_MIN_MONTHS;
     const distanceFromStart = haversineKm(origin.lat, origin.lng, spot.lat, spot.lng);
-    const typeAllowed = isSpotTypeAllowedForCourse(spot);
-    return ageMatch && distanceFromStart <= maxKm && typeAllowed;
+    return ageMatch && distanceFromStart <= maxKm;
   });
-}
-
-function isSpotTypeAllowedForCourse(spot) {
-  const typeKey = getSpotTypeKey(spot);
-  if (typeKey === "cafe" && !isCafeIncludedInCourse()) {
-    return false;
-  }
-  if (typeKey === "restaurant" && !isRestaurantIncludedInCourse()) {
-    return false;
-  }
-  if (typeKey === "event" && !isEventIncludedInCourse()) {
-    return false;
-  }
-  return true;
 }
 
 function getPriorityRanks(candidateSpots) {
@@ -1023,7 +969,6 @@ function findBestSpotForStrategy(
     const addedMinutes = travelMinutes(legKm) + spot.stayMin;
     const projected = currentMinutes + addedMinutes;
     if (projected > maxMinutes) return;
-    if (shouldSkipConsecutiveDining(routeSpots, spot, current, visitedIds, candidateSpots, currentMinutes, maxMinutes)) return;
 
     const score = scoreSpotByStrategy(
       strategy,
@@ -1053,85 +998,36 @@ function scoreSpotByStrategy(strategy, spot, origin, current, candidateSpots, ro
   const indoorScore = getIndoorThemeScore(spot);
   const outdoorScore = getOutdoorThemeScore(spot);
   const kidSuitabilityScore = getKidSuitabilityScore(spot);
-  const diningBonus = getDiningPreferenceBonus(spot);
-  const eventBonus = getEventPreferenceBonus(spot);
-  const playCenteredAdjustment = getPlayCenteredAdjustment(spot, routeSpots);
   const priorityRank = priorityRanks.get(getSpotSelectionKey(spot));
   const priorityBonus = priorityRank === undefined ? 0 : Math.max(80, 250 - (priorityRank * 22));
 
   switch (strategy.key) {
     case "closestFromHere":
       if (isSeed) {
-        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + (kidSuitabilityScore * 3)
-          + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + (kidSuitabilityScore * 3) + priorityBonus;
       }
       return 150 - (fromOriginKm * 26) - (fromCurrentKm * 16) - (clusterKm * 5)
-        + (popularityScore * 2) + (kidSuitabilityScore * 2.4) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+        + (popularityScore * 2) + (kidSuitabilityScore * 2.4) + priorityBonus;
     case "clusterNearby":
       if (isSeed) {
         return (densityScore * 26) - (fromOriginKm * 12) + (popularityScore * 2)
-          + (kidSuitabilityScore * 2.2) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+          + (kidSuitabilityScore * 2.2) + priorityBonus;
       }
       return (densityScore * 30) - (fromCurrentKm * 22) - (clusterKm * 18) - (fromOriginKm * 5)
-        + (kidSuitabilityScore * 2.2) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+        + (kidSuitabilityScore * 2.2) + priorityBonus;
     case "mostPopular":
       return (popularityScore * 30) - (fromCurrentKm * 12) - (fromOriginKm * 4) + (densityScore * 2)
-        + (kidSuitabilityScore * 4) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+        + (kidSuitabilityScore * 4) + priorityBonus;
     case "indoorPlay":
       return (indoorScore * 32) + (popularityScore * 8) - (fromCurrentKm * 13) - (fromOriginKm * 5)
-        + (densityScore * 2) + (kidSuitabilityScore * 3.2) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+        + (densityScore * 2) + (kidSuitabilityScore * 3.2) + priorityBonus;
     case "outdoorNature":
       return (outdoorScore * 32) + (popularityScore * 6) - (fromCurrentKm * 12) - (fromOriginKm * 5)
-        + (densityScore * 2) + (kidSuitabilityScore * 2.8) + diningBonus + eventBonus + playCenteredAdjustment + priorityBonus;
+        + (densityScore * 2) + (kidSuitabilityScore * 2.8) + priorityBonus;
     default:
-      return (popularityScore * 8) + (kidSuitabilityScore * 2.4) + diningBonus + eventBonus
-        + playCenteredAdjustment - (fromCurrentKm * 10) + priorityBonus;
+      return (popularityScore * 8) + (kidSuitabilityScore * 2.4)
+        - (fromCurrentKm * 10) + priorityBonus;
   }
-}
-
-function shouldSkipConsecutiveDining(routeSpots, candidateSpot, current, visitedIds, candidateSpots, currentMinutes, maxMinutes) {
-  const previousSpot = routeSpots.length ? routeSpots[routeSpots.length - 1] : null;
-  if (!previousSpot) return false;
-  if (!isDiningSpot(previousSpot) || !isDiningSpot(candidateSpot)) return false;
-
-  return hasFeasibleNonDiningSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes);
-}
-
-function hasFeasibleNonDiningSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes) {
-  return candidateSpots.some((spot) => {
-    if (visitedIds.has(spot.id)) return false;
-    if (isDiningSpot(spot)) return false;
-    const legKm = haversineKm(current.lat, current.lng, spot.lat, spot.lng);
-    const projected = currentMinutes + travelMinutes(legKm) + spot.stayMin;
-    return projected <= maxMinutes;
-  });
-}
-
-function getPlayCenteredAdjustment(spot, routeSpots) {
-  const previousSpot = routeSpots.length ? routeSpots[routeSpots.length - 1] : null;
-  const diningCount = routeSpots.reduce((count, routeSpot) => {
-    return count + (isDiningSpot(routeSpot) ? 1 : 0);
-  }, 0);
-  const playCount = routeSpots.length - diningCount;
-
-  if (isDiningSpot(spot)) {
-    let penalty = -12;
-    if (!routeSpots.length) penalty -= 8;
-    if (previousSpot && isDiningSpot(previousSpot)) penalty -= 48;
-    if (diningCount >= playCount) penalty -= 18;
-    return penalty;
-  }
-
-  let bonus = 6;
-  if (previousSpot && isDiningSpot(previousSpot)) {
-    bonus += 14;
-  }
-  return bonus;
-}
-
-function isDiningSpot(spot) {
-  const typeKey = getSpotTypeKey(spot);
-  return typeKey === "cafe" || typeKey === "restaurant";
 }
 
 function averageDistanceToRoute(targetSpot, routeSpots) {
@@ -1202,25 +1098,7 @@ function getKidSuitabilityScore(spot) {
   const cautionKeywords = ["노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥"];
   let score = getThemeTokenScore(text, positiveKeywords, 1.4);
   score -= getThemeTokenScore(text, cautionKeywords, 2.4);
-
-  const typeKey = getSpotTypeKey(spot);
-  if (typeKey === "cafe" || typeKey === "restaurant") {
-    score += getThemeTokenScore(text, ["키즈", "유아", "가족", "키즈메뉴", "아기의자"], 1.1);
-  }
   return score;
-}
-
-function getDiningPreferenceBonus(spot) {
-  const typeKey = getSpotTypeKey(spot);
-  if (typeKey === "cafe" && isCafeIncludedInCourse()) return 9;
-  if (typeKey === "restaurant" && isRestaurantIncludedInCourse()) return 10;
-  return 0;
-}
-
-function getEventPreferenceBonus(spot) {
-  const typeKey = getSpotTypeKey(spot);
-  if (typeKey === "event" && isEventIncludedInCourse()) return 11;
-  return 0;
 }
 
 function buildSpotSearchText(spot) {
@@ -1241,20 +1119,9 @@ function buildSpotSearchText(spot) {
     .toLowerCase();
 }
 
-function getSpotTypeKey(spot) {
-  const type = String(spot?.type || "").toLowerCase();
-  if (type === "cafe") return "cafe";
-  if (type === "restaurant") return "restaurant";
-  if (type === "event") return "event";
-  return "default";
-}
-
 function getSpotMarkerColor(spot, isActive = false) {
-  const typeKey = getSpotTypeKey(spot);
-  if (isActive) {
-    return SPOT_TYPE_ACTIVE_COLORS[typeKey] || SPOT_TYPE_ACTIVE_COLORS.default;
-  }
-  return SPOT_TYPE_COLORS[typeKey] || SPOT_TYPE_COLORS.default;
+  if (isActive) return ACTIVE_SPOT_COLOR;
+  return SPOT_COLOR;
 }
 
 function drawRoute(route) {
@@ -1491,7 +1358,6 @@ function renderNearbyPlaces() {
     card.className = `nearby-place-item${selectedKeys.has(key) ? " active" : ""}`;
 
     const categoryText = getSpotCategoryChipText(spot);
-    const spotTypeClass = getSpotTypeKey(spot);
     const distanceText = formatDistanceText(spot.distanceKm);
     const locationMeta = [spot.address || "", distanceText]
       .filter(Boolean)
@@ -1531,7 +1397,7 @@ function renderNearbyPlaces() {
         <div class="nearby-item-content">
           <div class="nearby-title-row">
             <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
-            <span class="nearby-category-chip ${spotTypeClass}">${escapeHtml(categoryText)}</span>
+            <span class="nearby-category-chip">${escapeHtml(categoryText)}</span>
           </div>
           <div class="nearby-metric-row">
             ${ratingLinkMarkup}
@@ -1569,10 +1435,6 @@ function renderNearbyPlaces() {
 }
 
 function getSpotCategoryChipText(spot) {
-  const typeKey = getSpotTypeKey(spot);
-  if (typeKey === "cafe") return "카페";
-  if (typeKey === "restaurant") return "음식점";
-  if (typeKey === "event") return "행사";
   return spot.categoryMain || spot.categoryLabel || "장소";
 }
 
@@ -1629,23 +1491,14 @@ function buildPlaceFeatureSummary(spot) {
   if (hasKeyword("도서관", "그림책", "독서", "책놀이", "박물관", "미술관", "기념관")) {
     pushUniqueSummary(play, "도서관/박물관처럼 배움형 공공장소와 함께 구성하기 좋아요");
   }
-  if (hasKeyword("카페", "브런치", "디저트", "커피")) {
-    pushUniqueSummary(play, "놀이 전후에 쉬어가기 좋은 카페 동선으로 묶기 좋아요");
-  }
-  if (hasKeyword("식당", "레스토랑", "한식", "양식", "분식", "푸드")) {
-    pushUniqueSummary(play, "놀이와 식사를 한 번에 계획하기 좋은 식사 코스예요");
-  }
   if (hasKeyword("인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처")) {
     pushUniqueSummary(play, "인생네컷 같은 포토 놀이를 짧게 넣기 좋은 코스예요");
-  }
-  if (hasKeyword("행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회")) {
-    pushUniqueSummary(play, "근처 행사/공연 일정과 함께 하루 코스를 구성하기 좋아요");
   }
   if (!play.length) {
     pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
   }
 
-  if (hasKeyword("할인", "이벤트", "쿠폰", "패키지", "무료", "혜택")) {
+  if (hasKeyword("할인", "쿠폰", "패키지", "무료", "혜택")) {
     pushUniqueSummary(benefit, "이벤트/할인 혜택이 있는지 확인해 보세요");
   }
   if (hasKeyword("생일", "파티", "단체")) {
