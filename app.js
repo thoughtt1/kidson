@@ -10,11 +10,11 @@ const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 const ROUTE_STRATEGIES = [
-  { key: "closestFromHere", label: "추천 코스 1 · 여기서 가까운 코스" },
-  { key: "clusterNearby", label: "추천 코스 2 · 가까운 장소끼리 코스" },
-  { key: "mostPopular", label: "추천 코스 3 · 인기 장소 중심 코스" },
-  { key: "indoorPlay", label: "추천 코스 4 · 실내 놀이 집중 코스" },
-  { key: "outdoorNature", label: "추천 코스 5 · 야외 자연 체험 코스" }
+  { key: "closestFromHere", label: "여기서 가까운 코스" },
+  { key: "clusterNearby", label: "가까운 장소끼리 코스" },
+  { key: "mostPopular", label: "인기 장소 중심 코스" },
+  { key: "indoorPlay", label: "실내 놀이 집중 코스" },
+  { key: "outdoorNature", label: "야외 자연 체험 코스" }
 ];
 
 const staticSpots = [
@@ -560,7 +560,7 @@ function renderSuggestions() {
     return;
   }
 
-  routes.forEach((route, idx) => {
+  routes.forEach((route) => {
     const card = document.createElement("article");
     card.className = "route-card";
     const selectedHitText = route.selectedHits > 0 ? ` · 꼭 ${route.selectedHits}곳 반영` : "";
@@ -575,7 +575,7 @@ function renderSuggestions() {
 
     card.innerHTML = `
       <div class="route-head">
-        <div class="route-title">${escapeHtml(route.label || `추천 코스 ${idx + 1}`)}</div>
+        <div class="route-title">${escapeHtml(route.label || "맞춤 코스")}</div>
         <div class="route-metrics">${Math.round(route.totalMinutes)}분 · ${route.totalDistanceKm.toFixed(1)}km${selectedHitText}</div>
       </div>
       <div class="route-stops">${stopsMarkup}</div>
@@ -624,21 +624,40 @@ function getPriorityRanks(candidateSpots) {
 
 function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priorityRanks = new Map()) {
   if (!candidateSpots.length) return [];
-  const mandatoryKeys = new Set(priorityRanks.keys());
-  const strategies = ROUTE_STRATEGIES.slice(0, Math.max(1, limit));
+
   const results = [];
+  const strategyLimit = Math.max(1, limit);
+  const strategies = ROUTE_STRATEGIES.slice(0, strategyLimit);
+
+  if (priorityRanks.size > 0) {
+    const mustRoute = buildRouteByStrategy(
+      origin,
+      candidateSpots,
+      maxMinutes,
+      priorityRanks,
+      ROUTE_STRATEGIES[0],
+      {
+        forceMandatory: true,
+        labelOverride: "여기는 꼭 추천 코스"
+      }
+    );
+    if (mustRoute) {
+      results.push(mustRoute);
+    }
+  }
 
   strategies.forEach((strategy) => {
     const route = buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy);
     if (!route) return;
-    if (mandatoryKeys.size > 0 && !routeContainsAllMandatory(route, mandatoryKeys)) return;
     results.push(route);
   });
 
-  return results.slice(0, limit);
+  return deduplicateRoutesBySpotSequence(results);
 }
 
-function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy) {
+function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy, options = {}) {
+  const forceMandatory = Boolean(options.forceMandatory);
+  const labelOverride = String(options.labelOverride || "").trim();
   const mandatorySpots = candidateSpots
     .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
     .sort((a, b) => {
@@ -647,26 +666,35 @@ function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks,
       return aRank - bRank;
     });
 
+  if (forceMandatory && !mandatorySpots.length) {
+    return null;
+  }
+
   const visitedIds = new Set();
   const routeSpots = [];
   let totalDistanceKm = 0;
   let totalMinutes = 0;
   let cursor = { lat: origin.lat, lng: origin.lng };
 
-  for (const spot of mandatorySpots) {
-    if (visitedIds.has(spot.id)) continue;
+  if (forceMandatory) {
+    for (const spot of mandatorySpots) {
+      if (visitedIds.has(spot.id)) continue;
 
-    const legKm = haversineKm(cursor.lat, cursor.lng, spot.lat, spot.lng);
-    const addedMinutes = travelMinutes(legKm) + spot.stayMin;
-    if (totalMinutes + addedMinutes > maxMinutes) {
-      return null;
+      const legKm = haversineKm(cursor.lat, cursor.lng, spot.lat, spot.lng);
+      const addedMinutes = travelMinutes(legKm) + spot.stayMin;
+      if (totalMinutes + addedMinutes > maxMinutes) {
+        if (routeSpots.length === 0) {
+          return null;
+        }
+        break;
+      }
+
+      routeSpots.push(spot);
+      visitedIds.add(spot.id);
+      totalDistanceKm += legKm;
+      totalMinutes += addedMinutes;
+      cursor = spot;
     }
-
-    routeSpots.push(spot);
-    visitedIds.add(spot.id);
-    totalDistanceKm += legKm;
-    totalMinutes += addedMinutes;
-    cursor = spot;
   }
 
   if (!routeSpots.length) {
@@ -721,7 +749,7 @@ function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks,
   }, 0);
 
   return {
-    label: strategy.label,
+    label: labelOverride || strategy.label,
     spots: routeSpots,
     totalMinutes,
     totalDistanceKm,
@@ -729,13 +757,14 @@ function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks,
   };
 }
 
-function routeContainsAllMandatory(route, mandatoryKeys) {
-  if (!mandatoryKeys.size) return true;
-  const routeKeys = new Set(route.spots.map((spot) => getSpotSelectionKey(spot)));
-  for (const key of mandatoryKeys) {
-    if (!routeKeys.has(key)) return false;
-  }
-  return true;
+function deduplicateRoutesBySpotSequence(routes) {
+  const seen = new Set();
+  return routes.filter((route) => {
+    const key = route.spots.map((spot) => spot.id).join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function findBestSpotForStrategy(
