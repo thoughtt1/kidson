@@ -537,6 +537,26 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.nearby-metric-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nearby-metric-link {
+  text-decoration: none;
+}
+
+.nearby-metric-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nearby-metric-link.disabled {
+  pointer-events: none;
+  color: #94a3b8;
+}
+
 .nearby-place-meta {
   margin: 0;
   font-size: 11px;
@@ -552,6 +572,14 @@ button:disabled {
   margin: 0;
   font-size: 11px;
   color: #1c7a45;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.nearby-blog-count {
+  margin: 0;
+  font-size: 11px;
+  color: #0b6aa8;
   font-weight: 700;
   line-height: 1.35;
 }

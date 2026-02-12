@@ -6,15 +6,20 @@ const NAVER_CLIENT_SECRET = (process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim(
 const DEFAULT_QUERIES = ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
 const MAX_DETAIL_ITEMS = 12;
 const MAX_RESULTS = 30;
+const MAX_WEBKR_DISPLAY = 5;
 const SEARCH_VARIANTS_LIMIT = 3;
 const RADIUS_PADDING_KM = 0.8;
 const RELAXED_RADIUS_EXTRA_KM = 3;
+const PLACE_LOOKUP_CACHE_TTL_MS = 1000 * 60 * 30;
+const PLACE_LOOKUP_CACHE_LIMIT = 500;
+const PLACE_HTML_USER_AGENT = "Mozilla/5.0 (compatible; KidsonBot/1.0; +https://github.com/thoughtt1/kidson)";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Content-Type": "application/json; charset=utf-8"
 };
+const placeLookupCache = new Map();
 
 if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
   console.error("NAVER_SEARCH_CLIENT_ID / NAVER_SEARCH_CLIENT_SECRET 환경 변수가 필요합니다.");
@@ -182,6 +187,12 @@ async function searchNearbyFromNaver({
   });
 
   places = places.slice(0, MAX_RESULTS);
+  places.forEach((place) => {
+    const normalizedLinks = normalizeNaverPlaceLinks(place.placeLink || "") || buildFallbackPlaceLinks(place);
+    place.placeLink = normalizedLinks.placeLink;
+    place.reviewLink = normalizedLinks.reviewLink;
+    place.blogReviewLink = normalizedLinks.blogReviewLink;
+  });
 
   if (!withDetails || !places.length) {
     return {
@@ -198,8 +209,11 @@ async function searchNearbyFromNaver({
   await Promise.all(detailTargets.map(async (place) => {
     const detail = await fetchPlaceDetail(place, areaHintCandidates[0] || "");
     if (!detail) return;
+    place.placeLink = detail.placeLink || buildMapSearchUrlForPlace(place);
+    place.reviewLink = detail.reviewLink || place.placeLink;
+    place.blogReviewLink = detail.blogReviewLink || place.placeLink;
     place.photoThumbnail = detail.photoThumbnail || "";
-    place.photoLink = detail.photoLink || "";
+    place.photoLink = detail.photoLink || place.placeLink || "";
     place.blogReviewTotal = detail.blogReviewTotal || 0;
     place.blogReviews = detail.blogReviews || [];
     place.ratingEstimated = detail.ratingEstimated;
@@ -238,6 +252,9 @@ function normalizeLocalItem(item, originLat, originLng) {
     category,
     lat,
     lng,
+    placeLink: toHttpsUrl(item.link || ""),
+    reviewLink: "",
+    blogReviewLink: "",
     distanceKm: Number.isFinite(distanceKm) ? Math.round(distanceKm * 1000) / 1000 : null
   };
 }
@@ -373,22 +390,345 @@ async function fetchPlaceDetail(place, areaHint) {
   const blogQuery = [locationHint, name, "리뷰"]
     .filter(Boolean)
     .join(" ");
-
-  const [imagePayload, blogPayload] = await Promise.all([
+  const placeLinks = await resolveNaverPlaceLinks(place, areaHint);
+  const [representativeImage, imagePayload, blogPayload] = await Promise.all([
+    fetchPlaceRepresentativeImage(placeLinks.mobileHomeLink || ""),
     fetchImageSnippet(imageQuery),
     fetchBlogReviews(blogQuery)
   ]);
 
   const blogReviewTotal = Number(blogPayload.total || 0);
   const ratingEstimated = estimateRatingFromReviewCount(blogReviewTotal);
+  const photoThumbnail = representativeImage || imagePayload.thumbnail;
+  const placeLink = placeLinks.placeLink || buildMapSearchUrlForPlace(place);
+  const reviewLink = placeLinks.reviewLink || placeLink;
+  const blogReviewLink = placeLinks.blogReviewLink || placeLink;
+  const photoLink = placeLink || imagePayload.link;
 
   return {
-    photoThumbnail: imagePayload.thumbnail,
-    photoLink: imagePayload.link,
+    placeLink,
+    reviewLink,
+    blogReviewLink,
+    photoThumbnail,
+    photoLink,
     blogReviewTotal,
     blogReviews: blogPayload.reviews,
     ratingEstimated
   };
+}
+
+async function resolveNaverPlaceLinks(place, areaHint) {
+  const cacheKey = buildPlaceCacheKey(place);
+  const cached = getCachedPlaceLinks(cacheKey);
+  if (cached) return cached;
+
+  const directLinks = normalizeNaverPlaceLinks(place.link || place.placeLink || "");
+  if (directLinks) {
+    setCachedPlaceLinks(cacheKey, directLinks);
+    return directLinks;
+  }
+
+  const webQuery = buildWebLookupQuery(place, areaHint);
+  const webCandidates = await fetchWebSearchCandidates(webQuery);
+  const bestCandidate = pickBestPlaceCandidate(webCandidates, place);
+  const resolvedLinks = normalizeNaverPlaceLinks(bestCandidate?.link || "")
+    || buildFallbackPlaceLinks(place);
+
+  setCachedPlaceLinks(cacheKey, resolvedLinks);
+  return resolvedLinks;
+}
+
+function buildPlaceCacheKey(place) {
+  return [
+    normalizeCompareText(place?.title || ""),
+    normalizeCompareText(place?.roadAddress || place?.address || "")
+  ]
+    .filter(Boolean)
+    .join("|");
+}
+
+function getCachedPlaceLinks(cacheKey) {
+  if (!cacheKey) return null;
+  const cached = placeLookupCache.get(cacheKey);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    placeLookupCache.delete(cacheKey);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedPlaceLinks(cacheKey, value) {
+  if (!cacheKey || !value) return;
+  if (placeLookupCache.size >= PLACE_LOOKUP_CACHE_LIMIT) {
+    const oldestKey = placeLookupCache.keys().next().value;
+    if (oldestKey) {
+      placeLookupCache.delete(oldestKey);
+    }
+  }
+  placeLookupCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + PLACE_LOOKUP_CACHE_TTL_MS
+  });
+}
+
+function buildWebLookupQuery(place, areaHint) {
+  return [
+    areaHint,
+    place?.roadAddress || place?.address || "",
+    place?.title || "",
+    "네이버지도"
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+async function fetchWebSearchCandidates(query) {
+  const cleanedQuery = String(query || "").trim();
+  if (!cleanedQuery) return [];
+
+  const url = new URL("https://openapi.naver.com/v1/search/webkr.json");
+  url.searchParams.set("query", cleanedQuery);
+  url.searchParams.set("display", String(MAX_WEBKR_DISPLAY));
+  url.searchParams.set("start", "1");
+  url.searchParams.set("sort", "sim");
+
+  const response = await requestNaverApi(url);
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = await response.json();
+  const items = Array.isArray(data.items) ? data.items : [];
+
+  return items
+    .map((item) => ({
+      title: stripHtml(item.title || "").trim(),
+      description: stripHtml(item.description || "").trim(),
+      link: toHttpsUrl(item.link || "")
+    }))
+    .filter((item) => item.link);
+}
+
+function pickBestPlaceCandidate(candidates, place) {
+  if (!Array.isArray(candidates) || !candidates.length) {
+    return null;
+  }
+
+  const nameText = normalizeCompareText(place?.title || "");
+  const addressText = normalizeCompareText(place?.roadAddress || place?.address || "");
+  let best = null;
+  let bestScore = -Infinity;
+
+  candidates.forEach((candidate) => {
+    const link = toHttpsUrl(candidate?.link || "");
+    if (!isLikelyNaverPlaceUrl(link)) return;
+
+    const titleText = normalizeCompareText(candidate?.title || "");
+    const descText = normalizeCompareText(candidate?.description || "");
+
+    let score = 0;
+    if (link.includes("m.place.naver.com")) score += 7;
+    if (link.includes("place.naver.com")) score += 6;
+    if (link.includes("/entry/place/")) score += 5;
+    if (extractPlaceIdFromUrl(link)) score += 4;
+    if (nameText && titleText.includes(nameText)) score += 4;
+    if (nameText && descText.includes(nameText)) score += 2;
+    if (addressText && (titleText.includes(addressText) || descText.includes(addressText))) score += 2;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  });
+
+  return best;
+}
+
+function isLikelyNaverPlaceUrl(rawUrl) {
+  const safeUrl = toHttpsUrl(rawUrl);
+  if (!safeUrl) return false;
+
+  try {
+    const { hostname, pathname } = new URL(safeUrl);
+    const host = hostname.replace(/^www\./, "");
+    if (host === "m.place.naver.com" || host === "place.naver.com") {
+      return true;
+    }
+    return host === "map.naver.com"
+      && (pathname.includes("/entry/place/") || pathname.startsWith("/p/search/") || pathname.startsWith("/v5/search/"));
+  } catch {
+    return false;
+  }
+}
+
+function normalizeNaverPlaceLinks(rawUrl) {
+  const safeUrl = toHttpsUrl(rawUrl);
+  if (!safeUrl) return null;
+
+  try {
+    const parsed = new URL(safeUrl);
+    const host = parsed.hostname.replace(/^www\./, "");
+
+    if (host === "m.place.naver.com" || host === "place.naver.com") {
+      const placeToken = parsePlaceTokenFromPath(parsed.pathname);
+      if (placeToken) {
+        return buildPlaceLinksFromToken(placeToken.type, placeToken.id);
+      }
+      return null;
+    }
+
+    if (host === "map.naver.com") {
+      const placeId = extractPlaceIdFromUrl(safeUrl);
+      if (placeId) {
+        return buildPlaceLinksFromToken("place", placeId);
+      }
+
+      if (parsed.pathname.startsWith("/p/search/") || parsed.pathname.startsWith("/v5/search/")) {
+        return {
+          placeLink: `https://map.naver.com${parsed.pathname}`,
+          reviewLink: `https://map.naver.com${parsed.pathname}`,
+          blogReviewLink: `https://map.naver.com${parsed.pathname}`,
+          mobileHomeLink: ""
+        };
+      }
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function parsePlaceTokenFromPath(pathname) {
+  const segments = String(pathname || "")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length < 2) return null;
+  const type = segments[0];
+  const id = segments[1];
+  if (!/^\d+$/.test(id)) return null;
+
+  return {
+    type: type || "place",
+    id
+  };
+}
+
+function extractPlaceIdFromUrl(rawUrl) {
+  const text = String(rawUrl || "");
+  const match = text.match(/\/(?:p\/)?entry\/place\/(\d+)/) || text.match(/\/v5\/entry\/place\/(\d+)/);
+  return match ? match[1] : "";
+}
+
+function buildPlaceLinksFromToken(type, id) {
+  const safeType = String(type || "place").trim() || "place";
+  const safeId = String(id || "").trim();
+  if (!/^\d+$/.test(safeId)) {
+    return null;
+  }
+
+  return {
+    placeLink: `https://map.naver.com/p/entry/place/${safeId}`,
+    reviewLink: `https://m.place.naver.com/${safeType}/${safeId}/review/visitor`,
+    blogReviewLink: `https://m.place.naver.com/${safeType}/${safeId}/review/ugc`,
+    mobileHomeLink: `https://m.place.naver.com/${safeType}/${safeId}/home`
+  };
+}
+
+function buildFallbackPlaceLinks(place) {
+  const searchUrl = buildMapSearchUrlForPlace(place);
+  return {
+    placeLink: searchUrl,
+    reviewLink: searchUrl,
+    blogReviewLink: searchUrl,
+    mobileHomeLink: ""
+  };
+}
+
+function buildMapSearchUrlForPlace(place) {
+  const query = [
+    stripHtml(place?.title || "").trim(),
+    stripHtml(place?.roadAddress || place?.address || "").trim()
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return `https://map.naver.com/p/search/${encodeURIComponent(query || "키즈 장소")}`;
+}
+
+async function fetchPlaceRepresentativeImage(rawPlaceHomeUrl) {
+  const placeHomeUrl = toHttpsUrl(rawPlaceHomeUrl);
+  if (!placeHomeUrl) return "";
+
+  try {
+    const response = await fetch(placeHomeUrl, {
+      headers: {
+        "User-Agent": PLACE_HTML_USER_AGENT,
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8"
+      }
+    });
+    if (!response.ok) {
+      return "";
+    }
+
+    const html = await response.text();
+    const ogImage = extractMetaContent(html, "property", "og:image")
+      || extractMetaContent(html, "name", "twitter:image");
+
+    return toHttpsUrl(decodeHtmlEntities(ogImage || ""));
+  } catch {
+    return "";
+  }
+}
+
+function extractMetaContent(html, attrName, attrValue) {
+  const source = String(html || "");
+  if (!source) return "";
+
+  const escapedAttr = escapeRegExp(attrName);
+  const escapedValue = escapeRegExp(attrValue);
+  const pattern = new RegExp(
+    `<meta[^>]*${escapedAttr}\\s*=\\s*["']${escapedValue}["'][^>]*content\\s*=\\s*["']([^"']+)["'][^>]*>`,
+    "i"
+  );
+  const fallbackPattern = new RegExp(
+    `<meta[^>]*content\\s*=\\s*["']([^"']+)["'][^>]*${escapedAttr}\\s*=\\s*["']${escapedValue}["'][^>]*>`,
+    "i"
+  );
+
+  const firstMatch = source.match(pattern);
+  if (firstMatch?.[1]) return firstMatch[1];
+
+  const secondMatch = source.match(fallbackPattern);
+  if (secondMatch?.[1]) return secondMatch[1];
+
+  return "";
+}
+
+function decodeHtmlEntities(text) {
+  return String(text || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function normalizeCompareText(value) {
+  return String(value || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function fetchImageSnippet(query) {
