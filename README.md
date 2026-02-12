@@ -8,16 +8,38 @@
 - 주변 반경(km), 사용 가능 시간(분), 출발 지점 설정
 - 거리/시간을 함께 고려해 여러 코스를 추천
 - 연령대(12개월~6세)에 맞는 장소 필터링
+- 네이버 지역 검색 API 프록시 연동 시 근처 상가/가게 기반 코스 추천
 
 ## 실행 방법
 
-1. `index.html`의 하단 스크립트에서 `window.NAVER_MAP_KEY_ID` 값을 본인 Key ID로 바꿉니다.
-2. `index.html`을 브라우저에서 열면 바로 실행됩니다.
+1. `index.html` 하단 스크립트에서 `window.NAVER_MAP_KEY_ID` 값을 본인 Key ID로 바꿉니다.
+2. 기본 모드(정적 샘플 장소)로는 `index.html`을 브라우저에서 열면 바로 실행됩니다.
+
+## 근처 상가/가게 검색 연동
+
+네이버 지도 JS API는 지도 렌더링용이며, 실제 상가 검색은 `네이버 검색 API(지역)`를 별도로 호출해야 합니다.
+
+1. 네이버 검색 API(지역)용 `Client ID`, `Client Secret`을 발급합니다.
+2. 서버 프록시를 실행합니다.
+3. `index.html`의 `window.NAVER_LOCAL_PROXY_URL`에 프록시 URL을 넣습니다.
+
+예시(로컬 실행):
+
+```bash
+NAVER_SEARCH_CLIENT_ID=발급받은_ID \
+NAVER_SEARCH_CLIENT_SECRET=발급받은_SECRET \
+node nearby-proxy.mjs
+```
+
+프록시 엔드포인트:
+
+- `GET /api/nearby-places?lat=37.57&lng=126.97&radiusKm=3&queries=키즈카페,놀이터`
 
 ## 참고
 
 - 지도는 네이버 지도 JavaScript API(v3)를 사용합니다.
 - `ncp_iam_...` 형태의 IAM Access Key는 브라우저 코드에 넣지 마세요.
+- `Client Secret`은 비밀번호와 같으므로 프론트엔드 코드에 넣으면 안 됩니다.
 - 서비스 URL(도메인) 등록이 되지 않으면 지도 타일이 표시되지 않습니다.
 - 추천 로직은 MVP용 그리디(heuristic) 방식입니다.
 - 운영 서비스에서는 장소 데이터/타일 정책을 검토해 상용 플랜으로 확장하세요.

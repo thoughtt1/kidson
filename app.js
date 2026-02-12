@@ -5,10 +5,12 @@ const MAX_COURSE_SUGGESTIONS = 5;
 const DEFAULT_AVAILABLE_MINUTES = 150;
 const DEFAULT_CENTER = { lat: 37.5715, lng: 126.978 };
 const NAVER_MAP_SCRIPT_URL = "https://oapi.map.naver.com/openapi/v3/maps.js";
+const NAVER_MAP_SUBMODULES = "geocoder";
 const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
+const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 
-const spots = [
+const staticSpots = [
   { id: "s1", name: "강변 놀이터", lat: 37.574, lng: 126.976, minAge: 12, maxAge: 72, stayMin: 35, type: "playground" },
   { id: "s2", name: "어린이 도서관 코너", lat: 37.572, lng: 126.984, minAge: 18, maxAge: 72, stayMin: 30, type: "library" },
   { id: "s3", name: "키즈 실내 체육관", lat: 37.569, lng: 126.979, minAge: 12, maxAge: 60, stayMin: 45, type: "indoor" },
@@ -19,6 +21,8 @@ const spots = [
   { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" }
 ];
 
+let spots = [...staticSpots];
+
 const distanceKmInput = document.getElementById("distanceKm");
 const distanceValue = document.getElementById("distanceValue");
 const timeMinutesInput = document.getElementById("timeMinutes");
@@ -27,18 +31,21 @@ const useLocationBtn = document.getElementById("useLocationBtn");
 const suggestBtn = document.getElementById("suggestBtn");
 const routeList = document.getElementById("routeList");
 const mapElement = document.getElementById("map");
+const resultsCaption = document.getElementById("resultsCaption");
 
 let startPoint = { ...DEFAULT_CENTER };
 let map = null;
 let startMarker = null;
 let radiusCircle = null;
 let routePolyline = null;
+let isFetchingNearby = false;
 const spotMarkers = new Map();
 const spotInfoWindows = new Map();
 
 bindUiEvents();
 redrawStartArea();
 timeValue.textContent = timeMinutesInput.value;
+setResultsCaption(DEFAULT_RESULTS_CAPTION);
 renderSuggestions();
 bootstrapNaverMap();
 
@@ -60,20 +67,22 @@ function bindUiEvents() {
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         startPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
         if (map && window.naver && window.naver.maps) {
           map.setCenter(toLatLng(startPoint));
           map.setZoom(14, true);
         }
         redrawStartArea();
-        renderSuggestions();
+        await syncNearbyAndRender();
       },
       () => alert("현재 위치를 가져오지 못했습니다. 지도 중심 기준으로 추천합니다.")
     );
   });
 
-  suggestBtn.addEventListener("click", renderSuggestions);
+  suggestBtn.addEventListener("click", async () => {
+    await syncNearbyAndRender();
+  });
 }
 
 async function bootstrapNaverMap() {
@@ -87,7 +96,7 @@ async function bootstrapNaverMap() {
     await loadNaverMapScript(mapKeyId);
     initializeMap();
     redrawStartArea();
-    renderSuggestions();
+    await syncNearbyAndRender();
   } catch (error) {
     console.error(error);
     showMapSetupMessage("네이버 지도 로딩에 실패했습니다. Key ID와 서비스 URL을 확인해 주세요.");
@@ -98,7 +107,6 @@ function getNaverMapKeyId() {
   const keyId = typeof window.NAVER_MAP_KEY_ID === "string" ? window.NAVER_MAP_KEY_ID.trim() : "";
   if (keyId) return keyId;
 
-  // Backward compatibility with prior variable naming.
   const legacyClientId = typeof window.NAVER_MAP_CLIENT_ID === "string" ? window.NAVER_MAP_CLIENT_ID.trim() : "";
   return legacyClientId;
 }
@@ -110,7 +118,8 @@ function loadNaverMapScript(mapKeyId) {
 
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `${NAVER_MAP_SCRIPT_URL}?ncpKeyId=${encodeURIComponent(mapKeyId)}`;
+    script.dataset.naverMapsSdk = "true";
+    script.src = `${NAVER_MAP_SCRIPT_URL}?ncpKeyId=${encodeURIComponent(mapKeyId)}&submodules=${encodeURIComponent(NAVER_MAP_SUBMODULES)}`;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
@@ -154,17 +163,228 @@ function initializeMap() {
 
   renderSpotMarkers();
 
-  naver.maps.Event.addListener(map, "click", (event) => {
+  naver.maps.Event.addListener(map, "click", async (event) => {
     startPoint = {
       lat: event.coord.lat(),
       lng: event.coord.lng()
     };
     redrawStartArea();
-    renderSuggestions();
+    await syncNearbyAndRender();
+  });
+}
+
+async function syncNearbyAndRender() {
+  await refreshNearbySpots();
+  renderSuggestions();
+}
+
+function getNearbyProxyUrl() {
+  const raw = typeof window.NAVER_LOCAL_PROXY_URL === "string" ? window.NAVER_LOCAL_PROXY_URL.trim() : "";
+  if (!raw) return "";
+  try {
+    return new URL(raw, window.location.href).toString();
+  } catch {
+    return "";
+  }
+}
+
+function getNearbyQueries() {
+  const configured = window.NAVER_LOCAL_SEARCH_QUERIES;
+  if (Array.isArray(configured)) {
+    const cleaned = configured
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+    if (cleaned.length) return cleaned;
+  }
+  return ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+}
+
+async function refreshNearbySpots() {
+  const proxyUrl = getNearbyProxyUrl();
+  if (!proxyUrl) {
+    spots = [...staticSpots];
+    rerenderSpotMarkers();
+    setResultsCaption(DEFAULT_RESULTS_CAPTION);
+    return;
+  }
+
+  if (isFetchingNearby) return;
+  isFetchingNearby = true;
+  setSearchButtonLoading(true);
+
+  try {
+    const areaHint = await resolveAreaHint(startPoint);
+    const queries = getNearbyQueries();
+    const params = new URLSearchParams({
+      lat: String(startPoint.lat),
+      lng: String(startPoint.lng),
+      radiusKm: String(distanceKmInput.value),
+      queries: queries.join(",")
+    });
+    if (areaHint) {
+      params.set("areaHint", areaHint);
+    }
+
+    const joiner = proxyUrl.includes("?") ? "&" : "?";
+    const response = await fetch(`${proxyUrl}${joiner}${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`nearby proxy request failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const liveSpots = normalizeNearbyItems(payload.items || [], Number(distanceKmInput.value));
+
+    if (liveSpots.length) {
+      spots = liveSpots;
+      setResultsCaption(`지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요 (${liveSpots.length}곳 반영)`);
+    } else {
+      spots = [...staticSpots];
+      setResultsCaption("근처 검색 결과가 없어 기본 추천 코스를 보여드려요");
+    }
+    rerenderSpotMarkers();
+  } catch (error) {
+    console.error(error);
+    spots = [...staticSpots];
+    rerenderSpotMarkers();
+    setResultsCaption("근처 상가 정보를 불러오지 못해 기본 추천 코스를 보여드려요");
+  } finally {
+    isFetchingNearby = false;
+    setSearchButtonLoading(false);
+  }
+}
+
+function normalizeNearbyItems(items, maxDistanceKm) {
+  const deduped = new Map();
+
+  items.forEach((item, idx) => {
+    const spot = toLiveSpot(item, idx, maxDistanceKm);
+    if (!spot) return;
+    const key = `${spot.name}|${spot.address || ""}|${spot.lat.toFixed(6)}|${spot.lng.toFixed(6)}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, spot);
+    }
+  });
+
+  return [...deduped.values()].slice(0, 30);
+}
+
+function toLiveSpot(item, idx, maxDistanceKm) {
+  const name = stripHtml(item.title || "").trim();
+  if (!name) return null;
+
+  const coords = toLatLngFromNearbyItem(item);
+  if (!coords) return null;
+
+  const distanceKm = haversineKm(startPoint.lat, startPoint.lng, coords.lat, coords.lng);
+  if (distanceKm > maxDistanceKm + 0.25) return null;
+
+  const category = stripHtml(item.category || "");
+  const stayMin = estimateStayMinutes(name, category);
+
+  return {
+    id: `live-${idx}-${Math.round(coords.lat * 1000000)}-${Math.round(coords.lng * 1000000)}`,
+    name,
+    lat: coords.lat,
+    lng: coords.lng,
+    minAge: 12,
+    maxAge: 72,
+    stayMin,
+    type: "nearby",
+    categoryLabel: category,
+    address: stripHtml(item.roadAddress || item.address || "")
+  };
+}
+
+function toLatLngFromNearbyItem(item) {
+  const latNum = Number(item.lat);
+  const lngNum = Number(item.lng);
+  if (isValidLatLng(latNum, lngNum)) {
+    return { lat: latNum, lng: lngNum };
+  }
+
+  const mapx = Number(item.mapx);
+  const mapy = Number(item.mapy);
+  if (!Number.isFinite(mapx) || !Number.isFinite(mapy)) {
+    return null;
+  }
+
+  const scaledLat = mapy / 10000000;
+  const scaledLng = mapx / 10000000;
+  if (isValidLatLng(scaledLat, scaledLng)) {
+    return { lat: scaledLat, lng: scaledLng };
+  }
+
+  if (window.naver && window.naver.maps && window.naver.maps.TransCoord && window.naver.maps.Point) {
+    try {
+      const tmPoint = new naver.maps.Point(mapx, mapy);
+      const latLng = naver.maps.TransCoord.fromTM128ToLatLng(tmPoint);
+      const converted = { lat: latLng.lat(), lng: latLng.lng() };
+      if (isValidLatLng(converted.lat, converted.lng)) {
+        return converted;
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  if (isValidLatLng(mapy, mapx)) {
+    return { lat: mapy, lng: mapx };
+  }
+
+  return null;
+}
+
+function isValidLatLng(lat, lng) {
+  return Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && lat >= -90
+    && lat <= 90
+    && lng >= -180
+    && lng <= 180;
+}
+
+function estimateStayMinutes(name, category) {
+  const text = `${name} ${category}`.toLowerCase();
+  if (text.includes("도서관")) return 35;
+  if (text.includes("체험") || text.includes("박물관")) return 45;
+  if (text.includes("놀이터") || text.includes("공원")) return 35;
+  if (text.includes("카페")) return 40;
+  return 30;
+}
+
+async function resolveAreaHint(point) {
+  if (!window.naver || !window.naver.maps || !window.naver.maps.Service) {
+    return "";
+  }
+
+  return new Promise((resolve) => {
+    const orderType = naver.maps.Service?.OrderType?.ADDR || "addr";
+    naver.maps.Service.reverseGeocode({
+      coords: new naver.maps.LatLng(point.lat, point.lng),
+      orders: String(orderType)
+    }, (status, response) => {
+      if (status !== naver.maps.Service.Status.OK) {
+        resolve("");
+        return;
+      }
+
+      const region = response?.v2?.results?.[0]?.region;
+      const areaParts = [
+        region?.area1?.name,
+        region?.area2?.name,
+        region?.area3?.name
+      ]
+        .map((part) => (part || "").trim())
+        .filter(Boolean);
+
+      resolve(areaParts.join(" "));
+    });
   });
 }
 
 function renderSpotMarkers() {
+  if (!map || !window.naver || !window.naver.maps) return;
+
   spots.forEach((spot) => {
     const marker = new naver.maps.Marker({
       map,
@@ -173,8 +393,10 @@ function renderSpotMarkers() {
       icon: buildCircleMarkerIcon(SPOT_COLOR)
     });
 
+    const secondaryText = spot.categoryLabel || "권장 체류";
+    const secondaryValue = spot.categoryLabel ? secondaryText : `${spot.stayMin}분`;
     const infoWindow = new naver.maps.InfoWindow({
-      content: `<div class="map-infowindow"><strong>${escapeHtml(spot.name)}</strong><br>권장 체류: ${spot.stayMin}분</div>`
+      content: `<div class="map-infowindow"><strong>${escapeHtml(spot.name)}</strong><br>${escapeHtml(secondaryValue)}</div>`
     });
 
     naver.maps.Event.addListener(marker, "click", () => {
@@ -185,6 +407,18 @@ function renderSpotMarkers() {
     spotMarkers.set(spot.id, marker);
     spotInfoWindows.set(spot.id, infoWindow);
   });
+}
+
+function rerenderSpotMarkers() {
+  clearSpotMarkers();
+  renderSpotMarkers();
+}
+
+function clearSpotMarkers() {
+  spotInfoWindows.forEach((infoWindow) => infoWindow.close());
+  spotMarkers.forEach((marker) => marker.setMap(null));
+  spotInfoWindows.clear();
+  spotMarkers.clear();
 }
 
 function redrawStartArea() {
@@ -401,6 +635,20 @@ function buildCircleMarkerIcon(fillColor) {
 
 function showMapSetupMessage(message) {
   mapElement.innerHTML = `<div class="map-message">${message}</div>`;
+}
+
+function setSearchButtonLoading(isLoading) {
+  suggestBtn.disabled = isLoading;
+  suggestBtn.textContent = isLoading ? "검색 중..." : "코스 검색";
+}
+
+function setResultsCaption(message) {
+  if (!resultsCaption) return;
+  resultsCaption.textContent = message;
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<[^>]+>/g, "");
 }
 
 function escapeHtml(value) {
