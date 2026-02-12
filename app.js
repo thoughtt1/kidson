@@ -9,6 +9,13 @@ const NAVER_MAP_SUBMODULES = "geocoder";
 const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
+const ROUTE_STRATEGIES = [
+  { key: "closestFromHere", label: "추천 코스 1 · 여기서 가까운 코스" },
+  { key: "clusterNearby", label: "추천 코스 2 · 가까운 장소끼리 코스" },
+  { key: "mostPopular", label: "추천 코스 3 · 인기 장소 중심 코스" },
+  { key: "indoorPlay", label: "추천 코스 4 · 실내 놀이 집중 코스" },
+  { key: "outdoorNature", label: "추천 코스 5 · 야외 자연 체험 코스" }
+];
 
 const staticSpots = [
   { id: "s1", name: "강변 놀이터", lat: 37.574, lng: 126.976, minAge: 12, maxAge: 72, stayMin: 35, type: "playground" },
@@ -617,174 +624,108 @@ function getPriorityRanks(candidateSpots) {
 
 function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priorityRanks = new Map()) {
   if (!candidateSpots.length) return [];
-  const results = [];
-  const seedEntries = [];
   const mandatoryKeys = new Set(priorityRanks.keys());
+  const strategies = ROUTE_STRATEGIES.slice(0, Math.max(1, limit));
+  const results = [];
 
-  if (priorityRanks.size > 0) {
-    const mustRoute = buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRanks);
-    if (mustRoute) {
-      results.push(mustRoute);
-    }
-  }
-
-  const prioritySeeds = candidateSpots
-    .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
-    .sort((a, b) => {
-      const aRank = priorityRanks.get(getSpotSelectionKey(a));
-      const bRank = priorityRanks.get(getSpotSelectionKey(b));
-      return aRank - bRank;
-    });
-
-  prioritySeeds.forEach((spot) => {
-    seedEntries.push({
-      spot,
-      startDist: haversineKm(origin.lat, origin.lng, spot.lat, spot.lng)
-    });
+  strategies.forEach((strategy) => {
+    const route = buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy);
+    if (!route) return;
+    if (mandatoryKeys.size > 0 && !routeContainsAllMandatory(route, mandatoryKeys)) return;
+    results.push(route);
   });
 
-  const nonPrioritySeeds = candidateSpots
-    .filter((spot) => !priorityRanks.has(getSpotSelectionKey(spot)))
-    .map((spot) => ({
-      spot,
-      startDist: haversineKm(origin.lat, origin.lng, spot.lat, spot.lng)
-    }))
-    .sort((a, b) => a.startDist - b.startDist);
-
-  const usedSeedIds = new Set(seedEntries.map((entry) => entry.spot.id));
-  nonPrioritySeeds.forEach((entry) => {
-    if (usedSeedIds.has(entry.spot.id)) return;
-    seedEntries.push(entry);
-    usedSeedIds.add(entry.spot.id);
-  });
-
-  const seeds = seedEntries.slice(0, Math.min(8, candidateSpots.length));
-
-  seeds.forEach(({ spot: seed }) => {
-    const visitedIds = new Set([seed.id]);
-    const routeSpots = [seed];
-    let distanceKm = haversineKm(origin.lat, origin.lng, seed.lat, seed.lng);
-    let minutes = seed.stayMin + travelMinutes(distanceKm);
-    let cursor = seed;
-
-    while (true) {
-      const next = findBestNextSpot(
-        cursor,
-        visitedIds,
-        candidateSpots,
-        minutes,
-        maxMinutes,
-        priorityRanks
-      );
-      if (!next) break;
-      visitedIds.add(next.id);
-      routeSpots.push(next);
-      const segmentKm = haversineKm(cursor.lat, cursor.lng, next.lat, next.lng);
-      distanceKm += segmentKm;
-      minutes += next.stayMin + travelMinutes(segmentKm);
-      cursor = next;
-    }
-
-    if (routeSpots.length > 0 && minutes <= maxMinutes) {
-      const selectedHits = routeSpots.reduce((count, spot) => {
-        return count + (priorityRanks.has(getSpotSelectionKey(spot)) ? 1 : 0);
-      }, 0);
-
-      results.push({
-        spots: routeSpots,
-        totalMinutes: minutes,
-        totalDistanceKm: distanceKm,
-        selectedHits
-      });
-    }
-  });
-
-  let normalizedRoutes = deduplicateRoutes(results);
-
-  if (mandatoryKeys.size > 0) {
-    normalizedRoutes = normalizedRoutes.filter((route) => {
-      return routeContainsAllMandatory(route, mandatoryKeys);
-    });
-  }
-
-  return normalizedRoutes
-    .sort((a, b) => {
-      if (Boolean(b.isMust) !== Boolean(a.isMust)) {
-        return Number(Boolean(b.isMust)) - Number(Boolean(a.isMust));
-      }
-      if (b.selectedHits !== a.selectedHits) return b.selectedHits - a.selectedHits;
-      if (b.spots.length !== a.spots.length) return b.spots.length - a.spots.length;
-      return a.totalMinutes - b.totalMinutes;
-    })
-    .slice(0, limit);
+  return results.slice(0, limit);
 }
 
-function buildMustSelectedRoute(origin, candidateSpots, maxMinutes, priorityRanks) {
-  const mustSpots = candidateSpots
+function buildRouteByStrategy(origin, candidateSpots, maxMinutes, priorityRanks, strategy) {
+  const mandatorySpots = candidateSpots
     .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
     .sort((a, b) => {
       const aRank = priorityRanks.get(getSpotSelectionKey(a));
       const bRank = priorityRanks.get(getSpotSelectionKey(b));
       return aRank - bRank;
     });
-
-  if (!mustSpots.length) return null;
 
   const visitedIds = new Set();
   const routeSpots = [];
-  let distanceKm = 0;
-  let minutes = 0;
+  let totalDistanceKm = 0;
+  let totalMinutes = 0;
   let cursor = { lat: origin.lat, lng: origin.lng };
 
-  for (const spot of mustSpots) {
+  for (const spot of mandatorySpots) {
     if (visitedIds.has(spot.id)) continue;
 
     const legKm = haversineKm(cursor.lat, cursor.lng, spot.lat, spot.lng);
     const addedMinutes = travelMinutes(legKm) + spot.stayMin;
-    if (minutes + addedMinutes > maxMinutes) {
+    if (totalMinutes + addedMinutes > maxMinutes) {
       return null;
     }
 
     routeSpots.push(spot);
     visitedIds.add(spot.id);
-    distanceKm += legKm;
-    minutes += addedMinutes;
+    totalDistanceKm += legKm;
+    totalMinutes += addedMinutes;
     cursor = spot;
   }
 
-  if (routeSpots.length !== mustSpots.length) {
-    return null;
-  }
-
-  while (true) {
-    const next = findBestNextSpot(
+  if (!routeSpots.length) {
+    const seed = findBestSpotForStrategy(
+      origin,
       cursor,
       visitedIds,
       candidateSpots,
-      minutes,
+      totalMinutes,
       maxMinutes,
-      priorityRanks
+      priorityRanks,
+      strategy,
+      routeSpots,
+      true
+    );
+    if (!seed) return null;
+
+    const legKm = haversineKm(cursor.lat, cursor.lng, seed.lat, seed.lng);
+    routeSpots.push(seed);
+    visitedIds.add(seed.id);
+    totalDistanceKm += legKm;
+    totalMinutes += travelMinutes(legKm) + seed.stayMin;
+    cursor = seed;
+  }
+
+  while (true) {
+    const next = findBestSpotForStrategy(
+      origin,
+      cursor,
+      visitedIds,
+      candidateSpots,
+      totalMinutes,
+      maxMinutes,
+      priorityRanks,
+      strategy,
+      routeSpots
     );
     if (!next) break;
 
-    visitedIds.add(next.id);
+    const legKm = haversineKm(cursor.lat, cursor.lng, next.lat, next.lng);
     routeSpots.push(next);
-    const segmentKm = haversineKm(cursor.lat, cursor.lng, next.lat, next.lng);
-    distanceKm += segmentKm;
-    minutes += next.stayMin + travelMinutes(segmentKm);
+    visitedIds.add(next.id);
+    totalDistanceKm += legKm;
+    totalMinutes += travelMinutes(legKm) + next.stayMin;
     cursor = next;
   }
+
+  if (!routeSpots.length) return null;
 
   const selectedHits = routeSpots.reduce((count, spot) => {
     return count + (priorityRanks.has(getSpotSelectionKey(spot)) ? 1 : 0);
   }, 0);
 
   return {
+    label: strategy.label,
     spots: routeSpots,
-    totalMinutes: minutes,
-    totalDistanceKm: distanceKm,
-    selectedHits,
-    isMust: true
+    totalMinutes,
+    totalDistanceKm,
+    selectedHits
   };
 }
 
@@ -797,7 +738,18 @@ function routeContainsAllMandatory(route, mandatoryKeys) {
   return true;
 }
 
-function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes, priorityRanks) {
+function findBestSpotForStrategy(
+  origin,
+  current,
+  visitedIds,
+  candidateSpots,
+  currentMinutes,
+  maxMinutes,
+  priorityRanks,
+  strategy,
+  routeSpots,
+  isSeed = false
+) {
   let best = null;
   let bestScore = -Infinity;
 
@@ -808,9 +760,16 @@ function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, m
     const projected = currentMinutes + addedMinutes;
     if (projected > maxMinutes) return;
 
-    const priorityRank = priorityRanks.get(getSpotSelectionKey(spot));
-    const priorityBonus = priorityRank === undefined ? 0 : Math.max(30, 120 - (priorityRank * 15));
-    const score = (spot.stayMin * 1.4) - (legKm * 8) + priorityBonus;
+    const score = scoreSpotByStrategy(
+      strategy,
+      spot,
+      origin,
+      current,
+      candidateSpots,
+      routeSpots,
+      priorityRanks,
+      isSeed
+    );
     if (score > bestScore) {
       bestScore = score;
       best = spot;
@@ -820,14 +779,107 @@ function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, m
   return best;
 }
 
-function deduplicateRoutes(routes) {
-  const seen = new Set();
-  return routes.filter((route) => {
-    const key = route.spots.map((spot) => spot.id).join(",");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+function scoreSpotByStrategy(strategy, spot, origin, current, candidateSpots, routeSpots, priorityRanks, isSeed) {
+  const fromOriginKm = haversineKm(origin.lat, origin.lng, spot.lat, spot.lng);
+  const fromCurrentKm = haversineKm(current.lat, current.lng, spot.lat, spot.lng);
+  const clusterKm = averageDistanceToRoute(spot, routeSpots);
+  const densityScore = getLocalDensityScore(spot, candidateSpots);
+  const popularityScore = getPopularityScore(spot);
+  const indoorScore = getIndoorThemeScore(spot);
+  const outdoorScore = getOutdoorThemeScore(spot);
+  const priorityRank = priorityRanks.get(getSpotSelectionKey(spot));
+  const priorityBonus = priorityRank === undefined ? 0 : Math.max(80, 250 - (priorityRank * 22));
+
+  switch (strategy.key) {
+    case "closestFromHere":
+      if (isSeed) {
+        return 180 - (fromOriginKm * 40) + (popularityScore * 3) + priorityBonus;
+      }
+      return 150 - (fromOriginKm * 26) - (fromCurrentKm * 16) - (clusterKm * 5) + (popularityScore * 2) + priorityBonus;
+    case "clusterNearby":
+      if (isSeed) {
+        return (densityScore * 26) - (fromOriginKm * 12) + (popularityScore * 2) + priorityBonus;
+      }
+      return (densityScore * 30) - (fromCurrentKm * 22) - (clusterKm * 18) - (fromOriginKm * 5) + priorityBonus;
+    case "mostPopular":
+      return (popularityScore * 30) - (fromCurrentKm * 12) - (fromOriginKm * 4) + (densityScore * 2) + priorityBonus;
+    case "indoorPlay":
+      return (indoorScore * 32) + (popularityScore * 8) - (fromCurrentKm * 13) - (fromOriginKm * 5) + (densityScore * 2) + priorityBonus;
+    case "outdoorNature":
+      return (outdoorScore * 32) + (popularityScore * 6) - (fromCurrentKm * 12) - (fromOriginKm * 5) + (densityScore * 2) + priorityBonus;
+    default:
+      return (popularityScore * 8) - (fromCurrentKm * 10) + priorityBonus;
+  }
+}
+
+function averageDistanceToRoute(targetSpot, routeSpots) {
+  if (!routeSpots.length) return 0;
+  const total = routeSpots.reduce((sum, spot) => {
+    return sum + haversineKm(targetSpot.lat, targetSpot.lng, spot.lat, spot.lng);
+  }, 0);
+  return total / routeSpots.length;
+}
+
+function getLocalDensityScore(targetSpot, candidateSpots) {
+  return candidateSpots.reduce((score, spot) => {
+    if (spot.id === targetSpot.id) return score;
+    const km = haversineKm(targetSpot.lat, targetSpot.lng, spot.lat, spot.lng);
+    if (km <= 0.4) return score + 2.4;
+    if (km <= 0.8) return score + 1.4;
+    if (km <= 1.2) return score + 0.8;
+    return score;
+  }, 0);
+}
+
+function getPopularityScore(spot) {
+  const rating = Number.isFinite(spot.ratingEstimated) ? spot.ratingEstimated : 3.6;
+  const blogCount = Number.isFinite(spot.blogReviewTotal) ? spot.blogReviewTotal : 0;
+  const normalizedBlogScore = Math.min(4.5, Math.log10(blogCount + 1) * 2.2);
+  return (rating * 1.5) + normalizedBlogScore;
+}
+
+function getIndoorThemeScore(spot) {
+  const text = buildSpotSearchText(spot);
+  let score = 0;
+
+  if (["indoor", "library", "museum", "creative"].includes(String(spot.type || "").toLowerCase())) {
+    score += 2.4;
+  }
+  score += getThemeTokenScore(text, ["실내", "키즈카페", "체험", "도서관", "박물관", "스튜디오", "공방", "만들기"], 2.2);
+  score += getThemeTokenScore(text, ["수유실", "유모차", "주차", "편의시설"], 0.8);
+
+  return score;
+}
+
+function getOutdoorThemeScore(spot) {
+  const text = buildSpotSearchText(spot);
+  let score = 0;
+
+  if (["outdoor", "park", "playground", "experience"].includes(String(spot.type || "").toLowerCase())) {
+    score += 2.4;
+  }
+  score += getThemeTokenScore(text, ["공원", "놀이터", "야외", "산책", "숲", "잔디", "자연", "동물"], 2.2);
+  score += getThemeTokenScore(text, ["피크닉", "물놀이", "체험"], 0.8);
+
+  return score;
+}
+
+function getThemeTokenScore(text, tokens, weight) {
+  const matchedCount = tokens.reduce((count, token) => {
+    return count + (text.includes(token) ? 1 : 0);
+  }, 0);
+  return matchedCount * weight;
+}
+
+function buildSpotSearchText(spot) {
+  return [
+    String(spot.name || ""),
+    String(spot.type || ""),
+    String(spot.categoryLabel || ""),
+    String(spot.address || "")
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 function drawRoute(route) {
