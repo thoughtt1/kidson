@@ -448,7 +448,14 @@ function renderSuggestions() {
   const distanceKm = Number(distanceKmInput.value);
   const maxMinutes = Number(timeMinutesInput.value) || DEFAULT_AVAILABLE_MINUTES;
   const candidates = filterCandidateSpots(startPoint, distanceKm);
-  const routes = buildRouteSuggestions(startPoint, candidates, maxMinutes, MAX_COURSE_SUGGESTIONS);
+  const priorityRanks = getPriorityRanks(candidates);
+  const routes = buildRouteSuggestions(
+    startPoint,
+    candidates,
+    maxMinutes,
+    MAX_COURSE_SUGGESTIONS,
+    priorityRanks
+  );
 
   routeList.innerHTML = "";
   clearRouteLine();
@@ -462,6 +469,7 @@ function renderSuggestions() {
   routes.forEach((route, idx) => {
     const card = document.createElement("article");
     card.className = "route-card";
+    const selectedHitText = route.selectedHits > 0 ? ` · 선호 ${route.selectedHits}곳` : "";
     const stopsMarkup = route.spots
       .map((spot, spotIdx) => {
         const hasNext = spotIdx < route.spots.length - 1;
@@ -472,7 +480,7 @@ function renderSuggestions() {
     card.innerHTML = `
       <div class="route-head">
         <div class="route-title">추천 코스 ${idx + 1}</div>
-        <div class="route-metrics">${Math.round(route.totalMinutes)}분 · ${route.totalDistanceKm.toFixed(1)}km</div>
+        <div class="route-metrics">${Math.round(route.totalMinutes)}분 · ${route.totalDistanceKm.toFixed(1)}km${selectedHitText}</div>
       </div>
       <div class="route-stops">${stopsMarkup}</div>
     `;
@@ -495,17 +503,58 @@ function filterCandidateSpots(origin, maxKm) {
   });
 }
 
-function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit) {
+function getPriorityRanks(candidateSpots) {
+  if (!selectedPlaces.length || !candidateSpots.length) {
+    return new Map();
+  }
+
+  const candidateKeys = new Set(candidateSpots.map((spot) => getSpotSelectionKey(spot)));
+  const priorityRanks = new Map();
+
+  selectedPlaces.forEach((place, rank) => {
+    if (!candidateKeys.has(place.key)) return;
+    priorityRanks.set(place.key, rank);
+  });
+
+  return priorityRanks;
+}
+
+function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit, priorityRanks = new Map()) {
   if (!candidateSpots.length) return [];
   const results = [];
+  const seedEntries = [];
 
-  const seeds = [...candidateSpots]
+  const prioritySeeds = candidateSpots
+    .filter((spot) => priorityRanks.has(getSpotSelectionKey(spot)))
+    .sort((a, b) => {
+      const aRank = priorityRanks.get(getSpotSelectionKey(a));
+      const bRank = priorityRanks.get(getSpotSelectionKey(b));
+      return aRank - bRank;
+    });
+
+  prioritySeeds.forEach((spot) => {
+    seedEntries.push({
+      spot,
+      startDist: haversineKm(origin.lat, origin.lng, spot.lat, spot.lng)
+    });
+  });
+
+  const nonPrioritySeeds = candidateSpots
+    .filter((spot) => !priorityRanks.has(getSpotSelectionKey(spot)))
     .map((spot) => ({
       spot,
       startDist: haversineKm(origin.lat, origin.lng, spot.lat, spot.lng)
     }))
-    .sort((a, b) => a.startDist - b.startDist)
-    .slice(0, Math.min(6, candidateSpots.length));
+    .sort((a, b) => a.startDist - b.startDist);
+
+  const usedSeedIds = new Set(seedEntries.map((entry) => entry.spot.id));
+  nonPrioritySeeds.forEach((entry) => {
+    if (usedSeedIds.has(entry.spot.id)) return;
+    seedEntries.push(entry);
+    usedSeedIds.add(entry.spot.id);
+  });
+
+  const seeds = seedEntries.slice(0, Math.min(8, candidateSpots.length));
 
   seeds.forEach(({ spot: seed }) => {
     const visitedIds = new Set([seed.id]);
@@ -515,7 +564,14 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit) {
     let cursor = seed;
 
     while (true) {
-      const next = findBestNextSpot(cursor, visitedIds, candidateSpots, minutes, maxMinutes);
+      const next = findBestNextSpot(
+        cursor,
+        visitedIds,
+        candidateSpots,
+        minutes,
+        maxMinutes,
+        priorityRanks
+      );
       if (!next) break;
       visitedIds.add(next.id);
       routeSpots.push(next);
@@ -526,23 +582,29 @@ function buildRouteSuggestions(origin, candidateSpots, maxMinutes, limit) {
     }
 
     if (routeSpots.length > 0 && minutes <= maxMinutes) {
+      const selectedHits = routeSpots.reduce((count, spot) => {
+        return count + (priorityRanks.has(getSpotSelectionKey(spot)) ? 1 : 0);
+      }, 0);
+
       results.push({
         spots: routeSpots,
         totalMinutes: minutes,
-        totalDistanceKm: distanceKm
+        totalDistanceKm: distanceKm,
+        selectedHits
       });
     }
   });
 
   return deduplicateRoutes(results)
     .sort((a, b) => {
+      if (b.selectedHits !== a.selectedHits) return b.selectedHits - a.selectedHits;
       if (b.spots.length !== a.spots.length) return b.spots.length - a.spots.length;
       return a.totalMinutes - b.totalMinutes;
     })
     .slice(0, limit);
 }
 
-function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes) {
+function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, maxMinutes, priorityRanks) {
   let best = null;
   let bestScore = -Infinity;
 
@@ -553,7 +615,9 @@ function findBestNextSpot(current, visitedIds, candidateSpots, currentMinutes, m
     const projected = currentMinutes + addedMinutes;
     if (projected > maxMinutes) return;
 
-    const score = (spot.stayMin * 1.4) - (legKm * 8);
+    const priorityRank = priorityRanks.get(getSpotSelectionKey(spot));
+    const priorityBonus = priorityRank === undefined ? 0 : Math.max(30, 120 - (priorityRank * 15));
+    const score = (spot.stayMin * 1.4) - (legKm * 8) + priorityBonus;
     if (score > bestScore) {
       bestScore = score;
       best = spot;
