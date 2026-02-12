@@ -1,0 +1,14 @@
+services:
+  - type: web
+    runtime: node
+    name: thoughtt1-kidson-proxy
+    plan: free
+    region: singapore
+    autoDeploy: true
+    buildCommand: echo "skip build"
+    startCommand: node nearby-proxy.mjs
+    envVars:
+      - key: NAVER_SEARCH_CLIENT_ID
+        sync: false
+      - key: NAVER_SEARCH_CLIENT_SECRET
+        sync: false

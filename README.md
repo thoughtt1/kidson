@@ -19,9 +19,23 @@
 
 네이버 지도 JS API는 지도 렌더링용이며, 실제 상가 검색은 `네이버 검색 API(지역)`를 별도로 호출해야 합니다.
 
+### Render로 바로 연결(권장)
+
+1. 아래 링크로 Render 배포를 실행합니다.  
+   [Deploy on Render](https://render.com/deploy?repo=https://github.com/thoughtt1/kidson)
+2. 환경 변수 두 개를 입력합니다.
+   - `NAVER_SEARCH_CLIENT_ID`
+   - `NAVER_SEARCH_CLIENT_SECRET`
+3. 배포 완료 후 프록시 URL 확인:
+   - `https://thoughtt1-kidson-proxy.onrender.com/api/nearby-places`
+4. 현재 `index.html` 기본값이 위 URL로 연결되어 있어, 배포 완료 후 바로 `코스 검색`이 동작합니다.
+5. Render에서 서비스명이 달라졌다면 `index.html`의 `window.NAVER_LOCAL_PROXY_URL`만 해당 URL로 수정합니다.
+
+### 로컬 프록시 실행(대안)
+
 1. 네이버 검색 API(지역)용 `Client ID`, `Client Secret`을 발급합니다.
 2. 서버 프록시를 실행합니다.
-3. `index.html`의 `window.NAVER_LOCAL_PROXY_URL`에 프록시 URL을 넣습니다.
+3. `index.html`의 `window.NAVER_LOCAL_PROXY_URL` 값을 `http://localhost:8787/api/nearby-places`로 바꿉니다.
 
 예시(로컬 실행):
 
@@ -31,7 +45,7 @@ NAVER_SEARCH_CLIENT_SECRET=발급받은_SECRET \
 node nearby-proxy.mjs
 ```
 
-프록시 엔드포인트:
+프록시 엔드포인트(공통):
 
 - `GET /api/nearby-places?lat=37.57&lng=126.97&radiusKm=3&queries=키즈카페,놀이터`
 
