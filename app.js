@@ -218,7 +218,8 @@ async function refreshNearbySpots() {
       lat: String(startPoint.lat),
       lng: String(startPoint.lng),
       radiusKm: String(distanceKmInput.value),
-      queries: queries.join(",")
+      queries: queries.join(","),
+      withDetails: "1"
     });
     if (areaHint) {
       params.set("areaHint", areaHint);
@@ -279,6 +280,9 @@ function toLiveSpot(item, idx, maxDistanceKm) {
 
   const category = stripHtml(item.category || "");
   const stayMin = estimateStayMinutes(name, category);
+  const blogReviewTotal = Number(item.blogReviewTotal || 0);
+  const ratingEstimated = Number(item.ratingEstimated);
+  const blogReviews = normalizeBlogReviews(item.blogReviews);
 
   return {
     id: `live-${idx}-${Math.round(coords.lat * 1000000)}-${Math.round(coords.lng * 1000000)}`,
@@ -290,8 +294,33 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     stayMin,
     type: "nearby",
     categoryLabel: category,
-    address: stripHtml(item.roadAddress || item.address || "")
+    address: stripHtml(item.roadAddress || item.address || ""),
+    photoThumbnail: toSafeImageUrl(item.photoThumbnail || ""),
+    photoLink: toSafeExternalUrl(item.photoLink || ""),
+    blogReviewTotal: Number.isFinite(blogReviewTotal) ? blogReviewTotal : 0,
+    ratingEstimated: Number.isFinite(ratingEstimated) ? ratingEstimated : null,
+    blogReviews
   };
+}
+
+function normalizeBlogReviews(reviews) {
+  if (!Array.isArray(reviews)) return [];
+  return reviews
+    .slice(0, 3)
+    .map((review) => ({
+      title: stripHtml(review?.title || "").trim(),
+      description: stripHtml(review?.description || "").trim(),
+      link: toSafeExternalUrl(review?.link || ""),
+      bloggerName: stripHtml(review?.bloggerName || "").trim(),
+      postDate: formatPostDate(String(review?.postDate || ""))
+    }))
+    .filter((review) => review.title || review.description);
+}
+
+function formatPostDate(raw) {
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (digits.length !== 8) return "";
+  return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)}`;
 }
 
 function toLatLngFromNearbyItem(item) {
@@ -861,10 +890,22 @@ function renderNearbyPlaces() {
     const meta = [spot.categoryLabel || `권장 체류 ${spot.stayMin}분`, spot.address || ""]
       .filter(Boolean)
       .join(" · ");
+    const ratingLabel = getSpotRatingLabel(spot);
+    const reviewSummary = getSpotReviewSummary(spot);
+    const reviewsMarkup = buildReviewLinksMarkup(spot.blogReviews);
+    const photoMarkup = spot.photoThumbnail
+      ? `<a class="nearby-photo-link" href="${escapeHtml(spot.photoLink || spot.photoThumbnail)}" target="_blank" rel="noopener noreferrer"><img class="nearby-photo" src="${escapeHtml(spot.photoThumbnail)}" alt="${escapeHtml(spot.name)} 사진"></a>`
+      : "<div class=\"nearby-photo-placeholder\">사진 없음</div>";
 
     card.innerHTML = `
+      <div class="nearby-photo-wrap">
+        ${photoMarkup}
+      </div>
       <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
       <p class="nearby-place-meta">${escapeHtml(meta)}</p>
+      <p class="nearby-place-rating">${escapeHtml(ratingLabel)}</p>
+      <p class="nearby-place-review">${escapeHtml(reviewSummary)}</p>
+      ${reviewsMarkup}
       <div class="nearby-actions">
         <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
         <button type="button" class="selected-action-btn" data-action="select">선택</button>
@@ -888,6 +929,75 @@ function renderNearbyPlaces() {
 
     nearbyPlaceList.appendChild(card);
   });
+}
+
+function getSpotRatingLabel(spot) {
+  if (!Number.isFinite(spot.ratingEstimated)) {
+    return "별점 정보 없음";
+  }
+  const stars = toStars(spot.ratingEstimated);
+  const reviewCount = Number.isFinite(spot.blogReviewTotal) ? spot.blogReviewTotal : 0;
+  return `${stars} ${spot.ratingEstimated.toFixed(1)} · 블로그 리뷰 ${reviewCount}건`;
+}
+
+function getSpotReviewSummary(spot) {
+  if (spot.blogReviews?.length) {
+    const first = spot.blogReviews[0];
+    const parts = [first.description || first.title, first.bloggerName, first.postDate]
+      .filter(Boolean)
+      .join(" · ");
+    return parts || "리뷰 요약 없음";
+  }
+  if (Number.isFinite(spot.blogReviewTotal) && spot.blogReviewTotal > 0) {
+    return `리뷰 ${spot.blogReviewTotal}건`;
+  }
+  return "리뷰 정보 없음";
+}
+
+function buildReviewLinksMarkup(reviews) {
+  if (!Array.isArray(reviews) || !reviews.length) {
+    return "<div class=\"nearby-review-links\"><span class=\"nearby-review-empty\">리뷰 링크 없음</span></div>";
+  }
+
+  const links = reviews
+    .map((review) => {
+      const title = review.title || "리뷰 보기";
+      const href = review.link || "#";
+      return `<a class="nearby-review-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`;
+    })
+    .join("");
+
+  return `<div class="nearby-review-links">${links}</div>`;
+}
+
+function toStars(rating) {
+  const normalized = Math.max(0, Math.min(5, Number(rating) || 0));
+  const rounded = Math.round(normalized);
+  const empty = 5 - rounded;
+  return `${"★".repeat(rounded)}${"☆".repeat(empty)}`;
+}
+
+function toSafeExternalUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function toSafeImageUrl(url) {
+  const safe = toSafeExternalUrl(url);
+  if (!safe) return "";
+  if (safe.startsWith("http://")) {
+    return `https://${safe.slice("http://".length)}`;
+  }
+  return safe;
 }
 
 function showMapSetupMessage(message) {

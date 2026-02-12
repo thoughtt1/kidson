@@ -4,6 +4,7 @@ const PORT = Number(process.env.PORT || 8787);
 const NAVER_CLIENT_ID = (process.env.NAVER_SEARCH_CLIENT_ID || "").trim();
 const NAVER_CLIENT_SECRET = (process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim();
 const DEFAULT_QUERIES = ["키즈카페", "실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
+const MAX_DETAIL_ITEMS = 12;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
@@ -37,9 +38,15 @@ const server = http.createServer(async (req, res) => {
   const queries = parseQueries(requestUrl.searchParams.get("queries"));
   const areaHint = (requestUrl.searchParams.get("areaHint") || "").trim();
   const display = normalizeDisplay(requestUrl.searchParams.get("display"));
+  const withDetails = requestUrl.searchParams.get("withDetails") !== "0";
 
   try {
-    const items = await searchNearbyFromNaver({ queries, areaHint, display });
+    const items = await searchNearbyFromNaver({
+      queries,
+      areaHint,
+      display,
+      withDetails
+    });
     sendJson(res, 200, {
       source: "naver-local-search",
       count: items.length,
@@ -73,7 +80,7 @@ function normalizeDisplay(raw) {
   return Math.min(5, Math.max(1, Math.floor(display)));
 }
 
-async function searchNearbyFromNaver({ queries, areaHint, display }) {
+async function searchNearbyFromNaver({ queries, areaHint, display, withDetails = true }) {
   const aggregated = [];
 
   for (const query of queries) {
@@ -82,14 +89,9 @@ async function searchNearbyFromNaver({ queries, areaHint, display }) {
     url.searchParams.set("query", searchQuery);
     url.searchParams.set("display", String(display));
     url.searchParams.set("start", "1");
-    url.searchParams.set("sort", "random");
+    url.searchParams.set("sort", "comment");
 
-    const response = await fetch(url, {
-      headers: {
-        "X-Naver-Client-Id": NAVER_CLIENT_ID,
-        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
-      }
-    });
+    const response = await requestNaverApi(url);
 
     if (!response.ok) {
       throw new Error(`Naver local API failed (${response.status})`);
@@ -122,7 +124,138 @@ async function searchNearbyFromNaver({ queries, areaHint, display }) {
     });
   });
 
-  return [...unique.values()];
+  const places = [...unique.values()];
+  if (!withDetails || !places.length) {
+    return places;
+  }
+
+  const detailTargets = places.slice(0, MAX_DETAIL_ITEMS);
+  await Promise.all(detailTargets.map(async (place) => {
+    const detail = await fetchPlaceDetail(place, areaHint);
+    if (!detail) return;
+    place.photoThumbnail = detail.photoThumbnail || "";
+    place.photoLink = detail.photoLink || "";
+    place.blogReviewTotal = detail.blogReviewTotal || 0;
+    place.blogReviews = detail.blogReviews || [];
+    place.ratingEstimated = detail.ratingEstimated;
+    place.ratingSource = "estimated_from_blog_reviews";
+  }));
+
+  return places;
+}
+
+async function fetchPlaceDetail(place, areaHint) {
+  const locationHint = [areaHint, place.roadAddress || place.address || ""]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+  const name = stripHtml(place.title || "").trim();
+  if (!name) return null;
+
+  const imageQuery = [locationHint, name]
+    .filter(Boolean)
+    .join(" ");
+  const blogQuery = [locationHint, name, "리뷰"]
+    .filter(Boolean)
+    .join(" ");
+
+  const [imagePayload, blogPayload] = await Promise.all([
+    fetchImageSnippet(imageQuery),
+    fetchBlogReviews(blogQuery)
+  ]);
+
+  const blogReviewTotal = Number(blogPayload.total || 0);
+  const ratingEstimated = estimateRatingFromReviewCount(blogReviewTotal);
+
+  return {
+    photoThumbnail: imagePayload.thumbnail,
+    photoLink: imagePayload.link,
+    blogReviewTotal,
+    blogReviews: blogPayload.reviews,
+    ratingEstimated
+  };
+}
+
+async function fetchImageSnippet(query) {
+  if (!query) return { thumbnail: "", link: "" };
+
+  const url = new URL("https://openapi.naver.com/v1/search/image.json");
+  url.searchParams.set("query", query);
+  url.searchParams.set("display", "1");
+  url.searchParams.set("start", "1");
+  url.searchParams.set("sort", "sim");
+
+  const response = await requestNaverApi(url);
+  if (!response.ok) {
+    return { thumbnail: "", link: "" };
+  }
+
+  const data = await response.json();
+  const first = Array.isArray(data.items) ? data.items[0] : null;
+  if (!first) {
+    return { thumbnail: "", link: "" };
+  }
+
+  return {
+    thumbnail: toHttpsUrl(first.thumbnail || ""),
+    link: toHttpsUrl(first.link || "")
+  };
+}
+
+async function fetchBlogReviews(query) {
+  if (!query) return { total: 0, reviews: [] };
+
+  const url = new URL("https://openapi.naver.com/v1/search/blog.json");
+  url.searchParams.set("query", query);
+  url.searchParams.set("display", "3");
+  url.searchParams.set("start", "1");
+  url.searchParams.set("sort", "sim");
+
+  const response = await requestNaverApi(url);
+  if (!response.ok) {
+    return { total: 0, reviews: [] };
+  }
+
+  const data = await response.json();
+  const items = Array.isArray(data.items) ? data.items : [];
+  const reviews = items.map((item) => ({
+    title: stripHtml(item.title || "").trim(),
+    description: stripHtml(item.description || "").trim(),
+    link: toHttpsUrl(item.link || ""),
+    bloggerName: stripHtml(item.bloggername || "").trim(),
+    postDate: String(item.postdate || "")
+  }));
+
+  return {
+    total: Number(data.total || 0),
+    reviews
+  };
+}
+
+function estimateRatingFromReviewCount(reviewCount) {
+  if (!Number.isFinite(reviewCount) || reviewCount <= 0) return null;
+  const normalized = Math.log10(reviewCount + 1);
+  const score = Math.min(5, 2.8 + normalized * 0.8);
+  return Math.round(score * 10) / 10;
+}
+
+async function requestNaverApi(url) {
+  return fetch(url, {
+    headers: {
+      "X-Naver-Client-Id": NAVER_CLIENT_ID,
+      "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+    }
+  });
+}
+
+function toHttpsUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("http://")) {
+    return `https://${raw.slice("http://".length)}`;
+  }
+  return raw;
 }
 
 function sendJson(res, statusCode, payload) {
