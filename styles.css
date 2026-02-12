@@ -268,7 +268,7 @@ button:disabled {
   position: absolute;
   top: 14px;
   right: 14px;
-  width: 290px;
+  width: 340px;
   max-height: calc(100% - 28px);
   min-height: 320px;
   display: grid;
@@ -439,31 +439,39 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   padding: 8px 10px 10px;
 }
 
 .nearby-place-item {
   display: grid;
-  gap: 6px;
-  padding: 9px;
-  border: 1px solid #e1e8ef;
-  border-radius: 10px;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #dce4ec;
+  border-radius: 12px;
   background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 .nearby-place-item.active {
-  border-color: #bde5cc;
-  box-shadow: 0 0 0 1px rgba(3, 199, 90, 0.18) inset;
+  border-color: #83d4a7;
+  box-shadow: 0 0 0 1px rgba(3, 199, 90, 0.2) inset;
+}
+
+.nearby-item-main {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
 }
 
 .nearby-photo-wrap {
-  width: 100%;
-  height: 110px;
-  border-radius: 8px;
+  width: 92px;
+  height: 92px;
+  border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #dce5ee;
   background: #f8fafc;
+  flex-shrink: 0;
 }
 
 .nearby-photo-link {
@@ -488,34 +496,123 @@ button:disabled {
   color: #64748b;
 }
 
+.nearby-item-content {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.nearby-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .nearby-place-name {
   margin: 0;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
   color: #0f172a;
-  line-height: 1.35;
+  line-height: 1.32;
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.nearby-category-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #187d49;
+  background: #edf8f2;
+  border: 1px solid #d0ebdc;
+  flex-shrink: 0;
 }
 
 .nearby-place-meta {
   margin: 0;
   font-size: 11px;
   color: #64748b;
-  line-height: 1.45;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .nearby-place-rating {
   margin: 0;
   font-size: 11px;
-  color: #1f7a43;
+  color: #1c7a45;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .nearby-place-review {
   margin: 0;
   font-size: 11px;
+  color: #526174;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.nearby-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nearby-quick-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid #dae3ec;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nearby-quick-link:hover {
+  background: #f2f6fa;
+}
+
+.nearby-quick-link.disabled {
+  color: #94a3b8;
+  background: #f8fafc;
+  border-color: #e7edf3;
+  pointer-events: none;
+}
+
+.nearby-review-block {
+  display: grid;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid #e4eaf1;
+  border-radius: 9px;
+  background: #f9fbfd;
+}
+
+.nearby-review-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
   color: #475569;
-  line-height: 1.45;
 }
 
 .nearby-review-links {
@@ -528,6 +625,14 @@ button:disabled {
   color: #0369a1;
   text-decoration: none;
   line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nearby-review-link.disabled {
+  color: #94a3b8;
+  pointer-events: none;
 }
 
 .nearby-review-link:hover {
@@ -542,6 +647,12 @@ button:disabled {
 .nearby-actions {
   display: flex;
   gap: 6px;
+}
+
+.nearby-actions .selected-action-btn {
+  flex: 1;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .nearby-empty {
@@ -607,7 +718,7 @@ button:disabled {
   .map-selected-panel {
     top: 10px;
     right: 10px;
-    width: min(290px, calc(100% - 20px));
+    width: min(340px, calc(100% - 20px));
     max-height: min(58%, calc(100% - 20px));
   }
 

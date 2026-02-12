@@ -281,8 +281,8 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     : haversineKm(startPoint.lat, startPoint.lng, coords.lat, coords.lng);
   if (distanceKm > maxDistanceKm + 0.8) return null;
 
-  const category = stripHtml(item.category || "");
-  const stayMin = estimateStayMinutes(name, category);
+  const categoryLabel = stripHtml(item.category || "");
+  const stayMin = estimateStayMinutes(name, categoryLabel);
   const blogReviewTotal = Number(item.blogReviewTotal || 0);
   const ratingEstimated = Number(item.ratingEstimated);
   const blogReviews = normalizeBlogReviews(item.blogReviews);
@@ -296,8 +296,12 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     maxAge: 72,
     stayMin,
     type: "nearby",
-    categoryLabel: category,
+    categoryLabel,
+    categoryMain: extractPrimaryCategory(categoryLabel),
     address: stripHtml(item.roadAddress || item.address || ""),
+    telephone: stripHtml(item.telephone || ""),
+    placeLink: toSafeExternalUrl(item.link || ""),
+    distanceKm: Number.isFinite(distanceKm) ? Math.round(distanceKm * 10) / 10 : null,
     photoThumbnail: toSafeImageUrl(item.photoThumbnail || ""),
     photoLink: toSafeExternalUrl(item.photoLink || ""),
     blogReviewTotal: Number.isFinite(blogReviewTotal) ? blogReviewTotal : 0,
@@ -381,6 +385,17 @@ function estimateStayMinutes(name, category) {
   if (text.includes("놀이터") || text.includes("공원")) return 35;
   if (text.includes("카페")) return 40;
   return 30;
+}
+
+function extractPrimaryCategory(categoryLabel) {
+  const text = String(categoryLabel || "").trim();
+  if (!text) return "장소";
+  const parts = text
+    .split(">")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "장소";
+  return parts[parts.length - 1];
 }
 
 async function resolveAreaHint(point) {
@@ -875,7 +890,7 @@ function renderNearbyPlaces() {
 
   const count = spots.length;
   if (nearbyCount) {
-    nearbyCount.textContent = `${count}곳`;
+    nearbyCount.textContent = `${count}곳 · 거리순`;
   }
 
   if (!count) {
@@ -890,24 +905,45 @@ function renderNearbyPlaces() {
     const key = getSpotSelectionKey(spot);
     card.className = `nearby-place-item${selectedKeys.has(key) ? " active" : ""}`;
 
-    const meta = [spot.categoryLabel || `권장 체류 ${spot.stayMin}분`, spot.address || ""]
+    const categoryText = spot.categoryMain || spot.categoryLabel || "장소";
+    const distanceText = formatDistanceText(spot.distanceKm);
+    const locationMeta = [spot.address || "", distanceText]
       .filter(Boolean)
       .join(" · ");
     const ratingLabel = getSpotRatingLabel(spot);
     const reviewSummary = getSpotReviewSummary(spot);
+    const quickLinkItems = [];
+    if (spot.placeLink) {
+      quickLinkItems.push(`<a class="nearby-quick-link" href="${escapeHtml(spot.placeLink)}" target="_blank" rel="noopener noreferrer">상세정보</a>`);
+    }
+    const phoneMarkup = buildPhoneMarkup(spot.telephone);
+    if (phoneMarkup) {
+      quickLinkItems.push(phoneMarkup);
+    }
+    const quickLinksMarkup = quickLinkItems.length
+      ? `<div class="nearby-quick-row">${quickLinkItems.join("")}</div>`
+      : "";
     const reviewsMarkup = buildReviewLinksMarkup(spot.blogReviews);
     const photoMarkup = spot.photoThumbnail
       ? `<a class="nearby-photo-link" href="${escapeHtml(spot.photoLink || spot.photoThumbnail)}" target="_blank" rel="noopener noreferrer"><img class="nearby-photo" src="${escapeHtml(spot.photoThumbnail)}" alt="${escapeHtml(spot.name)} 사진"></a>`
       : "<div class=\"nearby-photo-placeholder\">사진 없음</div>";
 
     card.innerHTML = `
-      <div class="nearby-photo-wrap">
-        ${photoMarkup}
+      <div class="nearby-item-main">
+        <div class="nearby-photo-wrap">
+          ${photoMarkup}
+        </div>
+        <div class="nearby-item-content">
+          <div class="nearby-title-row">
+            <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
+            <span class="nearby-category-chip">${escapeHtml(categoryText)}</span>
+          </div>
+          <p class="nearby-place-rating">${escapeHtml(ratingLabel)}</p>
+          <p class="nearby-place-review">${escapeHtml(reviewSummary)}</p>
+          <p class="nearby-place-meta">${escapeHtml(locationMeta || "주소 정보 없음")}</p>
+        </div>
       </div>
-      <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
-      <p class="nearby-place-meta">${escapeHtml(meta)}</p>
-      <p class="nearby-place-rating">${escapeHtml(ratingLabel)}</p>
-      <p class="nearby-place-review">${escapeHtml(reviewSummary)}</p>
+      ${quickLinksMarkup}
       ${reviewsMarkup}
       <div class="nearby-actions">
         <button type="button" class="selected-action-btn" data-action="focus">지도 보기</button>
@@ -946,7 +982,9 @@ function getSpotRatingLabel(spot) {
 function getSpotReviewSummary(spot) {
   if (spot.blogReviews?.length) {
     const first = spot.blogReviews[0];
-    const parts = [first.description || first.title, first.bloggerName, first.postDate]
+    const preview = (first.description || first.title || "").trim();
+    const compactPreview = preview.length > 34 ? `${preview.slice(0, 34)}...` : preview;
+    const parts = [compactPreview, first.bloggerName, first.postDate]
       .filter(Boolean)
       .join(" · ");
     return parts || "리뷰 요약 없음";
@@ -959,18 +997,31 @@ function getSpotReviewSummary(spot) {
 
 function buildReviewLinksMarkup(reviews) {
   if (!Array.isArray(reviews) || !reviews.length) {
-    return "<div class=\"nearby-review-links\"><span class=\"nearby-review-empty\">리뷰 링크 없음</span></div>";
+    return [
+      "<div class=\"nearby-review-block\">",
+      "<p class=\"nearby-review-title\">블로그 리뷰</p>",
+      "<div class=\"nearby-review-links\"><span class=\"nearby-review-empty\">리뷰 링크 없음</span></div>",
+      "</div>"
+    ].join("");
   }
 
   const links = reviews
     .map((review) => {
       const title = review.title || "리뷰 보기";
-      const href = review.link || "#";
+      const href = review.link || "";
+      if (!href) {
+        return `<span class="nearby-review-link disabled">${escapeHtml(title)}</span>`;
+      }
       return `<a class="nearby-review-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`;
     })
     .join("");
 
-  return `<div class="nearby-review-links">${links}</div>`;
+  return [
+    "<div class=\"nearby-review-block\">",
+    "<p class=\"nearby-review-title\">블로그 리뷰</p>",
+    `<div class="nearby-review-links">${links}</div>`,
+    "</div>"
+  ].join("");
 }
 
 function toStars(rating) {
@@ -978,6 +1029,22 @@ function toStars(rating) {
   const rounded = Math.round(normalized);
   const empty = 5 - rounded;
   return `${"★".repeat(rounded)}${"☆".repeat(empty)}`;
+}
+
+function buildPhoneMarkup(rawPhone) {
+  const phone = String(rawPhone || "").trim();
+  if (!phone) return "";
+  const tel = phone.replace(/[^0-9+]/g, "");
+  if (!tel) return "";
+  return `<a class="nearby-quick-link" href="tel:${escapeHtml(tel)}">${escapeHtml(phone)}</a>`;
+}
+
+function formatDistanceText(distanceKm) {
+  if (!Number.isFinite(distanceKm)) return "";
+  if (distanceKm < 1) {
+    return `${Math.round(distanceKm * 1000)}m`;
+  }
+  return `${distanceKm.toFixed(1)}km`;
 }
 
 function toSafeExternalUrl(url) {
