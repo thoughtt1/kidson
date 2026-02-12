@@ -32,6 +32,24 @@
 4. 현재 `index.html` 기본값이 위 URL로 연결되어 있어, 배포 완료 후 바로 `코스 검색`이 동작합니다.
 5. Render에서 서비스명이 달라졌다면 `index.html`의 `window.NAVER_LOCAL_PROXY_URL`만 해당 URL로 수정합니다.
 
+### AI 장소 분류 엔진(선택)
+
+장소 품질을 더 높이고 싶다면 프록시에 AI 분류를 켤 수 있습니다.
+
+1. Render 환경 변수 추가
+   - `AI_CLASSIFIER_ENABLED=1`
+   - `OPENAI_API_KEY=...`
+   - `OPENAI_MODEL=gpt-4o-mini` (원하는 모델로 변경 가능)
+   - 선택값:
+     - `AI_CLASSIFIER_MIN_CONFIDENCE=0.55`
+     - `AI_CLASSIFIER_MAX_ITEMS=20`
+     - `AI_CLASSIFIER_TIMEOUT_MS=12000`
+2. 저장 후 재배포하면, 프록시가 후보 장소를 AI로 한 번 더 분류해
+   - 사진/포토 계열,
+   - 아동 비적합 장소,
+   - 근거 없는 정원/가든
+   등을 추가로 걸러냅니다.
+
 ### 로컬 프록시 실행(대안)
 
 1. 네이버 검색 API(지역)용 `Client ID`, `Client Secret`을 발급합니다.
@@ -43,6 +61,9 @@
 ```bash
 NAVER_SEARCH_CLIENT_ID=발급받은_ID \
 NAVER_SEARCH_CLIENT_SECRET=발급받은_SECRET \
+AI_CLASSIFIER_ENABLED=1 \
+OPENAI_API_KEY=발급받은_KEY \
+OPENAI_MODEL=gpt-4o-mini \
 node nearby-proxy.mjs
 ```
 

@@ -30,6 +30,15 @@ const RELAXED_RADIUS_EXTRA_KM = 3;
 const PLACE_LOOKUP_CACHE_TTL_MS = 1000 * 60 * 30;
 const PLACE_LOOKUP_CACHE_LIMIT = 500;
 const PLACE_HTML_USER_AGENT = "Mozilla/5.0 (compatible; KidsonBot/1.0; +https://github.com/thoughtt1/kidson)";
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
+const OPENAI_MODEL = (process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").trim().replace(/\/$/, "");
+const AI_CLASSIFIER_ENABLED = (process.env.AI_CLASSIFIER_ENABLED || "").trim() === "1";
+const AI_CLASSIFIER_TIMEOUT_MS = Number(process.env.AI_CLASSIFIER_TIMEOUT_MS || 12000);
+const AI_CLASSIFIER_MIN_CONFIDENCE = Number(process.env.AI_CLASSIFIER_MIN_CONFIDENCE || 0.55);
+const AI_CLASSIFIER_MAX_ITEMS = Number(process.env.AI_CLASSIFIER_MAX_ITEMS || 20);
+const AI_CLASSIFIER_CACHE_TTL_MS = 1000 * 60 * 60 * 6;
+const AI_CLASSIFIER_CACHE_LIMIT = 1000;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
@@ -37,10 +46,15 @@ const CORS_HEADERS = {
   "Content-Type": "application/json; charset=utf-8"
 };
 const placeLookupCache = new Map();
+const aiSuitabilityCache = new Map();
 
 if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
   console.error("NAVER_SEARCH_CLIENT_ID / NAVER_SEARCH_CLIENT_SECRET 환경 변수가 필요합니다.");
   process.exit(1);
+}
+
+if (AI_CLASSIFIER_ENABLED && !OPENAI_API_KEY) {
+  console.warn("AI_CLASSIFIER_ENABLED=1 이지만 OPENAI_API_KEY가 없어 AI 분류를 건너뜁니다.");
 }
 
 const server = http.createServer(async (req, res) => {
@@ -241,6 +255,7 @@ async function searchNearbyFromNaver({
   }));
 
   places = places.filter((place) => isKidPlaySuitablePlace(place));
+  places = await applyAiSuitabilityFilter(places);
 
   return {
     items: places,
@@ -387,6 +402,246 @@ function isKidPlaySuitablePlace(place, options = {}) {
 
   if (playCount === 0 && kidCount === 0) return false;
   return score >= 1.8;
+}
+
+function shouldUseAiClassifier() {
+  return AI_CLASSIFIER_ENABLED && Boolean(OPENAI_API_KEY) && Boolean(OPENAI_MODEL);
+}
+
+function getAiTimeoutMs() {
+  return Number.isFinite(AI_CLASSIFIER_TIMEOUT_MS) && AI_CLASSIFIER_TIMEOUT_MS > 0
+    ? Math.floor(AI_CLASSIFIER_TIMEOUT_MS)
+    : 12000;
+}
+
+function getAiMinConfidence() {
+  if (!Number.isFinite(AI_CLASSIFIER_MIN_CONFIDENCE)) return 0.55;
+  return Math.max(0, Math.min(1, AI_CLASSIFIER_MIN_CONFIDENCE));
+}
+
+function getAiMaxItems(total) {
+  const fallback = Math.min(20, total);
+  if (!Number.isFinite(AI_CLASSIFIER_MAX_ITEMS)) return Math.max(1, fallback);
+  const normalized = Math.floor(AI_CLASSIFIER_MAX_ITEMS);
+  return Math.max(1, Math.min(total, normalized));
+}
+
+function buildAiSuitabilityCacheKey(place) {
+  return [
+    normalizeCompareText(place?.title || ""),
+    normalizeCompareText(place?.roadAddress || place?.address || "")
+  ]
+    .filter(Boolean)
+    .join("|");
+}
+
+function getCachedAiSuitability(cacheKey) {
+  if (!cacheKey) return null;
+  const cached = aiSuitabilityCache.get(cacheKey);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    aiSuitabilityCache.delete(cacheKey);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedAiSuitability(cacheKey, value) {
+  if (!cacheKey || !value) return;
+  if (aiSuitabilityCache.size >= AI_CLASSIFIER_CACHE_LIMIT) {
+    const oldestKey = aiSuitabilityCache.keys().next().value;
+    if (oldestKey) {
+      aiSuitabilityCache.delete(oldestKey);
+    }
+  }
+  aiSuitabilityCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + AI_CLASSIFIER_CACHE_TTL_MS
+  });
+}
+
+function buildAiCandidate(place, id) {
+  const blogSummary = Array.isArray(place?.blogReviews)
+    ? place.blogReviews
+      .slice(0, 2)
+      .map((review) => `${String(review?.title || "").trim()} ${String(review?.description || "").trim()}`.trim())
+      .filter(Boolean)
+      .join(" | ")
+      .slice(0, 700)
+    : "";
+
+  return {
+    id: String(id),
+    name: String(place?.title || "").trim(),
+    category: String(place?.category || "").trim(),
+    address: String(place?.roadAddress || place?.address || "").trim(),
+    description: String(place?.description || "").trim(),
+    blogSummary
+  };
+}
+
+function normalizeAiDecision(rawDecision) {
+  if (!rawDecision || typeof rawDecision !== "object") return null;
+  const suitable = Boolean(rawDecision.suitable);
+  const confidenceRaw = Number(rawDecision.confidence);
+  const confidence = Number.isFinite(confidenceRaw)
+    ? Math.max(0, Math.min(1, confidenceRaw))
+    : suitable ? 0.6 : 0.5;
+  const reason = String(rawDecision.reason || "").trim().slice(0, 240);
+  return { suitable, confidence, reason };
+}
+
+async function classifyPlacesWithOpenAi(candidates) {
+  if (!Array.isArray(candidates) || !candidates.length) {
+    return new Map();
+  }
+
+  const schema = {
+    name: "kid_place_classification",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        results: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              suitable: { type: "boolean" },
+              confidence: { type: "number" },
+              reason: { type: "string" }
+            },
+            required: ["id", "suitable", "confidence", "reason"],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ["results"],
+      additionalProperties: false
+    }
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), getAiTimeoutMs());
+
+  try {
+    const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: 0.1,
+        response_format: {
+          type: "json_schema",
+          json_schema: schema
+        },
+        messages: [
+          {
+            role: "system",
+            content: "당신은 12개월~6세 유아/아동 장소 분류기다. 사진촬영 장소, 성인/유흥/비놀이 장소는 제외해야 한다. 정원은 아이 동반 놀이/산책 근거가 없으면 제외한다."
+          },
+          {
+            role: "user",
+            content: [
+              "다음 후보 장소를 suitable(추천) / unsuitable(제외)로 분류해줘.",
+              "판정 기준:",
+              "1) 12개월~6세 아이와 실제로 놀거나 체험하기 적합한가",
+              "2) 사진관/포토부스/인생네컷 계열은 무조건 제외",
+              "3) 학원/어린이집/의료/사무/유흥 계열은 제외",
+              "4) 정원/가든은 아이 동반 놀이/산책 근거가 있어야 추천",
+              "후보 JSON:",
+              JSON.stringify({ candidates })
+            ].join("\n")
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`openai classify failed (${response.status})`);
+    }
+
+    const payload = await response.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (!content) return new Map();
+
+    const parsed = JSON.parse(content);
+    const results = Array.isArray(parsed?.results) ? parsed.results : [];
+    const map = new Map();
+    results.forEach((result) => {
+      const id = String(result?.id || "");
+      if (!id) return;
+      const normalized = normalizeAiDecision(result);
+      if (!normalized) return;
+      map.set(id, normalized);
+    });
+    return map;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function applyAiSuitabilityFilter(places) {
+  if (!shouldUseAiClassifier()) {
+    return places;
+  }
+
+  if (!Array.isArray(places) || !places.length) {
+    return places;
+  }
+
+  const limit = getAiMaxItems(places.length);
+  const targetPlaces = places.slice(0, limit);
+  const pending = [];
+  const decisionByKey = new Map();
+
+  targetPlaces.forEach((place, index) => {
+    const key = buildAiSuitabilityCacheKey(place);
+    if (!key) return;
+    const cached = getCachedAiSuitability(key);
+    if (cached) {
+      decisionByKey.set(key, cached);
+      return;
+    }
+    pending.push({ place, index, key });
+  });
+
+  if (pending.length) {
+    try {
+      const candidates = pending.map(({ place, index }) => buildAiCandidate(place, index));
+      const aiResults = await classifyPlacesWithOpenAi(candidates);
+      pending.forEach(({ key, index }) => {
+        const decision = normalizeAiDecision(aiResults.get(String(index)));
+        if (!decision) return;
+        decisionByKey.set(key, decision);
+        setCachedAiSuitability(key, decision);
+      });
+    } catch (error) {
+      console.error("AI place classification failed. Fallback to heuristic filter.", error);
+      return places;
+    }
+  }
+
+  const minConfidence = getAiMinConfidence();
+
+  return places.filter((place, index) => {
+    if (index >= limit) return true;
+    const key = buildAiSuitabilityCacheKey(place);
+    const decision = key ? decisionByKey.get(key) : null;
+    if (!decision) return true;
+
+    place.aiSuitable = decision.suitable;
+    place.aiConfidence = decision.confidence;
+    place.aiReason = decision.reason;
+
+    if (decision.suitable) return true;
+    return decision.confidence < minConfidence;
+  });
 }
 
 function toLatLngFromItem(item) {

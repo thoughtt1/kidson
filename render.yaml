@@ -12,3 +12,15 @@ services:
         sync: false
       - key: NAVER_SEARCH_CLIENT_SECRET
         sync: false
+      - key: AI_CLASSIFIER_ENABLED
+        value: "0"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: AI_CLASSIFIER_MIN_CONFIDENCE
+        value: "0.55"
+      - key: AI_CLASSIFIER_MAX_ITEMS
+        value: "20"
+      - key: AI_CLASSIFIER_TIMEOUT_MS
+        value: "12000"
