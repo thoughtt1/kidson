@@ -874,12 +874,14 @@ function recordSelectedSpot(spot) {
 
   renderSelectedPlaces();
   renderNearbyPlaces();
+  renderSuggestions();
 }
 
 function clearSelectedPlaces() {
   selectedPlaces.length = 0;
   renderSelectedPlaces();
   renderNearbyPlaces();
+  renderSuggestions();
 }
 
 function getSpotSelectionKey(spot) {
@@ -952,6 +954,7 @@ function removeSelectedPlace(placeKey) {
   selectedPlaces.splice(index, 1);
   renderSelectedPlaces();
   renderNearbyPlaces();
+  renderSuggestions();
 }
 
 function focusSelectedPlace(place) {
