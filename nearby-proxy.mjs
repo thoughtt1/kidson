@@ -347,9 +347,9 @@ async function searchNearbyFromNaver({
   await Promise.all(detailTargets.map(async (place) => {
     const detail = await fetchPlaceDetail(place, areaHintCandidates[0] || "");
     if (!detail) return;
-    place.placeLink = detail.placeLink || buildMapSearchUrlForPlace(place);
-    place.reviewLink = detail.reviewLink || place.placeLink;
-    place.blogReviewLink = detail.blogReviewLink || place.placeLink;
+    place.placeLink = detail.placeLink || place.placeLink || "";
+    place.reviewLink = detail.reviewLink || place.reviewLink || "";
+    place.blogReviewLink = detail.blogReviewLink || place.blogReviewLink || "";
     place.mobileHomeLink = detail.mobileHomeLink || place.mobileHomeLink || "";
     place.photoThumbnail = detail.photoThumbnail || "";
     place.photoLink = detail.photoLink || place.placeLink || "";
@@ -416,6 +416,7 @@ function shouldExcludeItem(title, category, roadAddress, address) {
   if (isClearlyIrrelevantPlaceText(text)) return true;
   if (isPhotoRelatedText(text)) return true;
   if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return true;
+  if (isMuseumCategoryText(text) && !isNationalOrCityMuseumText(text)) return true;
   return false;
 }
 
@@ -487,6 +488,20 @@ function needsKidEvidenceByCategory(text) {
   ]);
 }
 
+function isMuseumCategoryText(text) {
+  return hasAnyKeyword(text, ["박물관", "뮤지엄", "museum"]);
+}
+
+function isNationalOrCityMuseumText(text) {
+  if (hasAnyKeyword(text, ["사립", "민간 운영", "민간운영", "개인 운영", "개인운영"])) {
+    return false;
+  }
+  return hasAnyKeyword(text, [
+    "국립", "시립", "국가 운영", "국가운영", "국가가 운영",
+    "시 운영", "시운영", "시에서 운영", "시청 운영", "공립박물관"
+  ]);
+}
+
 function containsGardenKeyword(text) {
   return hasAnyKeyword(text, GARDEN_KEYWORDS);
 }
@@ -529,6 +544,7 @@ function isKidPlaySuitablePlace(place, options = {}) {
   if (isClearlyIrrelevantPlaceText(text)) return false;
   if (isPhotoRelatedText(text)) return false;
   if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return false;
+  if (isMuseumCategoryText(text) && !isNationalOrCityMuseumText(text)) return false;
   if (isGardenWithoutKidEvidence(baseText, blogText, allowUnverifiedGarden)) return false;
   if (!hasAnyKeyword(text, TARGET_CATEGORY_KEYWORDS)) return false;
   if (needsKidEvidenceByCategory(text)) return false;
@@ -1043,9 +1059,9 @@ async function fetchPlaceDetail(place, areaHint) {
   const blogReviewTotal = Number(blogPayload.total || 0);
   const ratingEstimated = estimateRatingFromReviewCount(blogReviewTotal);
   const photoThumbnail = representativeImage || imagePayload.thumbnail;
-  const placeLink = placeLinks.placeLink || buildMapSearchUrlForPlace(place);
-  const reviewLink = placeLinks.reviewLink || placeLink;
-  const blogReviewLink = placeLinks.blogReviewLink || placeLink;
+  const placeLink = placeLinks.placeLink || "";
+  const reviewLink = placeLinks.reviewLink || "";
+  const blogReviewLink = placeLinks.blogReviewLink || "";
   const mobileHomeLink = placeLinks.mobileHomeLink || "";
   const photoLink = placeLink || imagePayload.link;
 
@@ -1201,8 +1217,7 @@ function isLikelyNaverPlaceUrl(rawUrl) {
     if (host === "m.place.naver.com" || host === "place.naver.com") {
       return true;
     }
-    return host === "map.naver.com"
-      && (pathname.includes("/entry/place/") || pathname.startsWith("/p/search/") || pathname.startsWith("/v5/search/"));
+    return host === "map.naver.com" && pathname.includes("/entry/place/");
   } catch {
     return false;
   }
@@ -1228,15 +1243,6 @@ function normalizeNaverPlaceLinks(rawUrl) {
       const placeId = extractPlaceIdFromUrl(safeUrl);
       if (placeId) {
         return buildPlaceLinksFromToken("place", placeId);
-      }
-
-      if (parsed.pathname.startsWith("/p/search/") || parsed.pathname.startsWith("/v5/search/")) {
-        return {
-          placeLink: `https://map.naver.com${parsed.pathname}`,
-          reviewLink: `https://map.naver.com${parsed.pathname}`,
-          blogReviewLink: `https://map.naver.com${parsed.pathname}`,
-          mobileHomeLink: ""
-        };
       }
       return null;
     }
@@ -1287,24 +1293,12 @@ function buildPlaceLinksFromToken(type, id) {
 }
 
 function buildFallbackPlaceLinks(place) {
-  const searchUrl = buildMapSearchUrlForPlace(place);
   return {
-    placeLink: searchUrl,
-    reviewLink: searchUrl,
-    blogReviewLink: searchUrl,
+    placeLink: "",
+    reviewLink: "",
+    blogReviewLink: "",
     mobileHomeLink: ""
   };
-}
-
-function buildMapSearchUrlForPlace(place) {
-  const query = [
-    stripHtml(place?.title || "").trim(),
-    stripHtml(place?.roadAddress || place?.address || "").trim()
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return `https://map.naver.com/p/search/${encodeURIComponent(query || "키즈 장소")}`;
 }
 
 async function fetchPlaceRepresentativeImage(rawPlaceHomeUrl) {

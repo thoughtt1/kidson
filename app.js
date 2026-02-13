@@ -439,10 +439,10 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     categoryMain: extractPrimaryCategory(categoryLabel),
     address,
     telephone: stripHtml(item.telephone || ""),
-    placeLink: toSafeExternalUrl(item.placeLink || item.link || ""),
-    reviewLink: toSafeExternalUrl(item.reviewLink || item.placeLink || item.link || ""),
-    blogReviewLink: toSafeExternalUrl(item.blogReviewLink || item.placeLink || item.link || ""),
-    mobileHomeLink: toSafeExternalUrl(item.mobileHomeLink || item.placeLink || item.link || ""),
+    placeLink: toSafeExternalUrl(item.placeLink || ""),
+    reviewLink: toSafeExternalUrl(item.reviewLink || ""),
+    blogReviewLink: toSafeExternalUrl(item.blogReviewLink || ""),
+    mobileHomeLink: toSafeExternalUrl(item.mobileHomeLink || item.placeLink || ""),
     distanceKm: Number.isFinite(distanceKm) ? Math.round(distanceKm * 10) / 10 : null,
     photoThumbnail: toSafeImageUrl(item.photoThumbnail || ""),
     photoLink: toSafeExternalUrl(item.photoLink || ""),
@@ -583,6 +583,7 @@ function shouldExcludePlaceFromList(name, categoryLabel, address = "", options =
   if (isClearlyIrrelevantPlaceText(text)) return true;
   if (isPhotoRelatedText(text)) return true;
   if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return true;
+  if (isMuseumCategoryText(text) && !isNationalOrCityMuseumText(text)) return true;
   if (isGardenWithoutKidEvidence(text, blogText)) return true;
   if (isParkLikeButNotOutdoor(text)) return true;
   if (!isTargetCategoryText(text)) return true;
@@ -631,6 +632,20 @@ function needsKidEvidenceByCategory(text) {
   return !hasAnyKeyword(text, [
     "어린이", "유아", "아이", "아기", "키즈", "가족",
     "유모차", "수유실", "유아의자", "아기의자", "키즈메뉴"
+  ]);
+}
+
+function isMuseumCategoryText(text) {
+  return hasAnyKeyword(text, ["박물관", "뮤지엄", "museum"]);
+}
+
+function isNationalOrCityMuseumText(text) {
+  if (hasAnyKeyword(text, ["사립", "민간 운영", "민간운영", "개인 운영", "개인운영"])) {
+    return false;
+  }
+  return hasAnyKeyword(text, [
+    "국립", "시립", "국가 운영", "국가운영", "국가가 운영",
+    "시 운영", "시운영", "시에서 운영", "시청 운영", "공립박물관"
   ]);
 }
 
@@ -1522,7 +1537,7 @@ function renderNearbyPlaces() {
       "nearby-place-rating"
     );
     const blogCountLinkMarkup = buildMetricLinkMarkup(
-      spot.blogReviewLink || spot.placeLink,
+      spot.blogReviewLink,
       blogCountLabel,
       "nearby-blog-count"
     );
@@ -1609,21 +1624,40 @@ function buildMetricLinkMarkup(href, label, className) {
 
 function buildPlaceNameMarkup(spot) {
   const name = escapeHtml(spot?.name || "");
-  const safeHref = toSafeExternalUrl(
-    spot?.mobileHomeLink
-    || spot?.placeLink
-    || spot?.reviewLink
-    || spot?.blogReviewLink
-    || buildNaverPlaceFallbackUrl(spot?.name || "", spot?.address || "")
-  );
-  return `<a class="nearby-place-name nearby-place-name-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+  const candidateUrls = [
+    spot?.mobileHomeLink || "",
+    spot?.placeLink || "",
+    spot?.reviewLink || "",
+    spot?.blogReviewLink || ""
+  ];
+  const directPlaceUrl = candidateUrls
+    .map((url) => toSafeExternalUrl(url))
+    .find((url) => isDirectNaverPlaceUrl(url));
+
+  if (!directPlaceUrl) {
+    return `<p class="nearby-place-name">${name}</p>`;
+  }
+  return `<a class="nearby-place-name nearby-place-name-link" href="${escapeHtml(directPlaceUrl)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
 }
 
-function buildNaverPlaceFallbackUrl(name, address = "") {
-  const query = [String(name || "").trim(), String(address || "").trim()]
-    .filter(Boolean)
-    .join(" ");
-  return `https://map.naver.com/p/search/${encodeURIComponent(query || "키즈 장소")}`;
+function isDirectNaverPlaceUrl(url) {
+  const safeUrl = String(url || "").trim();
+  if (!safeUrl) return false;
+
+  try {
+    const parsed = new URL(safeUrl);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const path = parsed.pathname || "";
+    if (host === "m.place.naver.com" || host === "place.naver.com") {
+      return /\/\d+\/(home|review)\b/.test(path);
+    }
+    if (host === "map.naver.com") {
+      return path.includes("/entry/place/");
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function buildPlaceFeatureSummary(spot) {
