@@ -470,37 +470,38 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  gap: 10px;
-  padding: 8px 10px 10px;
+  gap: 7px;
+  padding: 6px 8px 8px;
 }
 
 .nearby-place-item {
   display: grid;
-  gap: 10px;
-  padding: 11px;
-  border: 1px solid #dce4ec;
-  border-radius: 12px;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #e2e8ee;
+  border-radius: 9px;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  box-shadow: none;
 }
 
 .nearby-place-item.active {
-  border-color: #83d4a7;
-  box-shadow: 0 0 0 1px rgba(3, 199, 90, 0.2) inset;
+  border-color: #90d8ad;
+  background: #f6fbf8;
+  box-shadow: inset 3px 0 0 rgba(3, 199, 90, 0.82);
 }
 
 .nearby-item-main {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .nearby-photo-wrap {
-  width: 92px;
-  height: 92px;
-  border-radius: 10px;
+  width: 74px;
+  height: 74px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #dce5ee;
+  border: 1px solid #e2e8ee;
   background: #f8fafc;
   flex-shrink: 0;
 }
@@ -530,36 +531,35 @@ button:disabled {
 .nearby-item-content {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .nearby-title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .nearby-place-name {
   margin: 0;
   font-size: 13px;
-  font-weight: 800;
-  color: #0f172a;
-  line-height: 1.32;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.25;
   letter-spacing: -0.01em;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nearby-place-name-link {
-  color: #0f172a;
+  color: #111827;
   text-decoration: none;
 }
 
 .nearby-place-name-link:hover {
-  color: #0b6aa8;
+  color: #0b67a3;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -568,21 +568,21 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 20px;
-  padding: 0 8px;
+  height: 18px;
+  padding: 0 7px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 700;
-  color: #187d49;
-  background: #edf8f2;
-  border: 1px solid #d0ebdc;
+  color: #157a45;
+  background: #f1f8f4;
+  border: 1px solid #d8ebdf;
   flex-shrink: 0;
 }
 
 .nearby-metric-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 6px;
 }
 
 .nearby-metric-link {
@@ -602,64 +602,63 @@ button:disabled {
 .nearby-place-meta {
   margin: 0;
   font-size: 11px;
-  color: #64748b;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  color: #6b7280;
+  line-height: 1.35;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nearby-place-feature {
   margin: 0;
   font-size: 11px;
-  color: #4b5a6b;
-  line-height: 1.45;
+  color: #4b5563;
+  line-height: 1.35;
   display: grid;
-  grid-template-columns: 40px 1fr;
-  gap: 6px;
+  grid-template-columns: 32px 1fr;
+  gap: 4px;
   align-items: start;
 }
 
 .nearby-highlight-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 .nearby-highlight-chip {
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 7px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
-  color: #1f7a43;
-  border: 1px solid #cde7d8;
-  background: #edf8f2;
+  font-weight: 600;
+  color: #1c6f42;
+  border: 1px solid #d5e8dc;
+  background: #f3faf6;
 }
 
 .nearby-feature-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
-  color: #1f7a43;
+  color: #148244;
 }
 
 .nearby-place-rating {
   margin: 0;
-  font-size: 11px;
-  color: #1c7a45;
+  font-size: 10px;
+  color: #1b6f40;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 
 .nearby-blog-count {
   margin: 0;
-  font-size: 11px;
-  color: #0b6aa8;
+  font-size: 10px;
+  color: #0b67a3;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 
 .nearby-quick-row {
@@ -701,8 +700,10 @@ button:disabled {
 
 .nearby-actions .selected-action-btn {
   flex: 1;
-  height: 28px;
-  border-radius: 8px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .nearby-empty {

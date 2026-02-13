@@ -1649,7 +1649,7 @@ function isDirectNaverPlaceUrl(url) {
     const host = parsed.hostname.replace(/^www\./, "");
     const path = parsed.pathname || "";
     if (host === "m.place.naver.com" || host === "place.naver.com") {
-      return /\/\d+\/(home|review)\b/.test(path);
+      return /\/[^/]+\/\d+\/(home|review)\b/.test(path);
     }
     if (host === "map.naver.com") {
       return path.includes("/entry/place/");
