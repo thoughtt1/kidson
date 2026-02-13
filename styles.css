@@ -553,6 +553,17 @@ button:disabled {
   overflow: hidden;
 }
 
+.nearby-place-name-link {
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.nearby-place-name-link:hover {
+  color: #0b6aa8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .nearby-category-chip {
   display: inline-flex;
   align-items: center;
@@ -608,6 +619,25 @@ button:disabled {
   grid-template-columns: 40px 1fr;
   gap: 6px;
   align-items: start;
+}
+
+.nearby-highlight-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.nearby-highlight-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #1f7a43;
+  border: 1px solid #cde7d8;
+  background: #edf8f2;
 }
 
 .nearby-feature-label {

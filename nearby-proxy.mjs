@@ -3,7 +3,19 @@ import http from "node:http";
 const PORT = Number(process.env.PORT || 8787);
 const NAVER_CLIENT_ID = (process.env.NAVER_SEARCH_CLIENT_ID || "").trim();
 const NAVER_CLIENT_SECRET = (process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim();
-const DEFAULT_QUERIES = ["실내놀이터", "어린이도서관", "공원", "유적지", "박물관", "미술관", "공연장", "유아 동반 식당"];
+const DEFAULT_QUERIES = [
+  "실내놀이터",
+  "어린이도서관",
+  "공원",
+  "유적지",
+  "박물관",
+  "미술관",
+  "공연장",
+  "키즈카페",
+  "유아 동반 식당",
+  "어린이서점",
+  "완구점"
+];
 const PLAY_KEYWORDS = [
   "놀이터", "놀이", "체험", "박물관", "도서관", "공원", "숲", "산책",
   "야외", "자연", "과학관", "미술관", "동물", "유적", "광장", "한강",
@@ -16,6 +28,8 @@ const KID_KEYWORDS = [
 ];
 const KID_UNSUITABLE_KEYWORDS = [
   "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥",
+  "이자카야", "와인바", "와인 바", "펍", "칵테일", "칵테일바", "라운지바", "맥주집", "수제맥주",
+  "pub", "cocktail", "wine bar",
   "오피스", "사무실", "병원", "약국", "성형", "치과", "정형외과"
 ];
 const GARDEN_KEYWORDS = ["정원", "가든", "수목원", "식물원"];
@@ -27,6 +41,88 @@ const TARGET_CATEGORY_KEYWORDS = [
   "공원", "한강", "유적", "박물관", "미술관", "갤러리", "전시", "공연장",
   "극장", "연극", "뮤지컬", "콘서트", "놀이터", "체험", "도서관",
   "카페", "식당", "레스토랑", "브런치", "서점", "완구", "키즈", "가족"
+];
+const FAMILY_SUMMARY_RULES = [
+  {
+    label: "실내 놀이 중심",
+    keywords: ["체험", "클래스", "만들기", "공방", "오감", "놀이", "실내놀이터", "키즈카페"]
+  },
+  {
+    label: "야외 산책 중심",
+    keywords: ["공원", "한강", "놀이터", "숲", "잔디", "산책", "야외", "유적"]
+  },
+  {
+    label: "전시·배움 중심",
+    keywords: ["박물관", "미술관", "전시", "도서관", "역사", "유적지", "기념관"]
+  },
+  {
+    label: "공연 관람 중심",
+    keywords: ["공연장", "연극", "뮤지컬", "콘서트", "극장"]
+  },
+  {
+    label: "식사·휴식 중심",
+    keywords: ["카페", "브런치", "식당", "레스토랑", "키즈메뉴"]
+  },
+  {
+    label: "서점·완구 탐색 중심",
+    keywords: ["서점", "완구", "장난감", "문구", "키즈샵"]
+  }
+];
+const FAMILY_DETAIL_RULES = [
+  {
+    label: "신체 놀이 요소가 있어요",
+    keywords: ["놀이터", "정글짐", "트램폴린", "볼풀", "미끄럼틀", "키즈존"]
+  },
+  {
+    label: "체험 활동 비중이 높아요",
+    keywords: ["체험", "클래스", "만들기", "공방", "오감", "전시체험", "교육체험"]
+  },
+  {
+    label: "아이 눈높이 전시·학습 동선이에요",
+    keywords: ["박물관", "미술관", "도서관", "전시", "유적지", "기념관", "역사"]
+  },
+  {
+    label: "공연 관람 코스로 적합해요",
+    keywords: ["공연장", "연극", "뮤지컬", "콘서트", "극장"]
+  },
+  {
+    label: "식사/휴식과 함께 이용하기 좋아요",
+    keywords: ["카페", "브런치", "식당", "레스토랑", "키즈메뉴", "아기의자"]
+  },
+  {
+    label: "유아 동반 편의 정보가 보여요",
+    keywords: ["유모차", "수유실", "기저귀", "아기의자", "유아의자", "키즈메뉴"]
+  }
+];
+const FAMILY_HIGHLIGHT_RULES = [
+  {
+    label: "유모차 이동 동선 확인",
+    keywords: ["유모차", "엘리베이터", "경사로", "넓은 통로"]
+  },
+  {
+    label: "수유/기저귀 편의 확인",
+    keywords: ["수유실", "기저귀", "기저귀교환대", "수유"]
+  },
+  {
+    label: "유아 의자/키즈메뉴 확인",
+    keywords: ["아기의자", "유아의자", "키즈메뉴", "아동메뉴"]
+  },
+  {
+    label: "주차/대중교통 접근성 확인",
+    keywords: ["주차", "주차장", "역세권", "버스", "지하철"]
+  },
+  {
+    label: "혼잡 시간대 피하면 좋아요",
+    keywords: ["대기", "웨이팅", "혼잡", "붐빔", "주말"]
+  },
+  {
+    label: "사전 예약 여부 확인",
+    keywords: ["예약", "사전예약", "예매"]
+  },
+  {
+    label: "우천 시에도 이용 가능",
+    keywords: ["실내", "우천", "비오는날"]
+  }
 ];
 const MAX_DETAIL_ITEMS = 12;
 const MAX_RESULTS = 30;
@@ -263,6 +359,12 @@ async function searchNearbyFromNaver({
 
   places = places.filter((place) => isKidPlaySuitablePlace(place));
   places = await applyAiSuitabilityFilter(places);
+  places.forEach((place) => {
+    const insight = buildFamilyPlaceInsight(place);
+    place.familySummary = insight.summary;
+    place.familyHighlights = insight.highlights;
+    place.familyConfidence = insight.confidence;
+  });
 
   return {
     items: places,
@@ -340,6 +442,8 @@ function countKeywordMatches(text, keywords) {
 function isClearlyIrrelevantPlaceText(text) {
   return hasAnyKeyword(text, [
     "노키즈존", "유흥", "클럽", "룸살롱", "주점", "술집", "호프", "포차",
+    "이자카야", "와인바", "와인 바", "펍", "칵테일", "칵테일바", "라운지바", "맥주집", "수제맥주",
+    "pub", "cocktail", "wine bar",
     "오피스", "사무실", "병원", "약국", "치과", "정형외과", "성형외과",
     "피부과", "중고차", "자동차정비", "세차", "부동산", "대출", "보험"
   ]);
@@ -364,6 +468,19 @@ function isEducationFacilityText(text) {
 function isKidCultureFacilityText(text) {
   return hasAnyKeyword(text, [
     "어린이도서관", "어린이박물관", "유아체험", "키즈센터", "아동미술관"
+  ]);
+}
+
+function needsKidEvidenceByCategory(text) {
+  const requiresEvidence = hasAnyKeyword(text, [
+    "카페", "식당", "레스토랑", "브런치", "서점", "완구", "매장", "쇼핑",
+    "공연장", "극장", "연극", "뮤지컬", "콘서트"
+  ]);
+  if (!requiresEvidence) return false;
+
+  return !hasAnyKeyword(text, [
+    "어린이", "유아", "아이", "아기", "키즈", "가족",
+    "유모차", "수유실", "아기의자", "유아의자", "키즈메뉴"
   ]);
 }
 
@@ -411,6 +528,7 @@ function isKidPlaySuitablePlace(place, options = {}) {
   if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return false;
   if (isGardenWithoutKidEvidence(baseText, blogText, allowUnverifiedGarden)) return false;
   if (!hasAnyKeyword(text, TARGET_CATEGORY_KEYWORDS)) return false;
+  if (needsKidEvidenceByCategory(text)) return false;
 
   const playCount = countKeywordMatches(text, PLAY_KEYWORDS);
   const kidCount = countKeywordMatches(text, KID_KEYWORDS);
@@ -419,6 +537,123 @@ function isKidPlaySuitablePlace(place, options = {}) {
 
   if (playCount === 0 && kidCount === 0) return false;
   return score >= 1.3;
+}
+
+function pickRuleLabels(text, rules, maxCount) {
+  const labels = [];
+  rules.forEach((rule) => {
+    if (!rule || !Array.isArray(rule.keywords)) return;
+    if (!hasAnyKeyword(text, rule.keywords)) return;
+    if (labels.includes(rule.label)) return;
+    labels.push(rule.label);
+  });
+  return labels.slice(0, Math.max(1, maxCount));
+}
+
+function pickFirstRuleLabel(text, rules) {
+  const labels = pickRuleLabels(text, rules, 1);
+  return labels.length ? labels[0] : "";
+}
+
+function extractCategoryLeaf(categoryText) {
+  const parts = String(categoryText || "")
+    .split(">")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  const leaf = parts[parts.length - 1];
+  if (leaf.length <= 18) return leaf;
+  return `${leaf.slice(0, 18)}...`;
+}
+
+function buildBlogHintSnippet(reviews) {
+  if (!Array.isArray(reviews) || !reviews.length) return "";
+  const first = reviews.find((review) => {
+    return String(review?.title || "").trim() || String(review?.description || "").trim();
+  });
+  if (!first) return "";
+
+  const raw = `${String(first.title || "").trim()} ${String(first.description || "").trim()}`.trim();
+  if (!raw) return "";
+
+  const cleaned = stripHtml(raw)
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[|/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+  if (cleaned.length <= 22) return cleaned;
+  return `${cleaned.slice(0, 22)}...`;
+}
+
+function buildFamilyPlaceInsight(place) {
+  const baseText = buildFilterText(
+    place?.title || "",
+    place?.category || "",
+    place?.roadAddress || "",
+    place?.address || "",
+    place?.description || ""
+  );
+  const blogText = extractBlogReviewText(place?.blogReviews);
+  const text = buildFilterText(baseText, blogText);
+  if (!text) {
+    return {
+      summary: "아이와 함께 방문하기 좋은 장소인지 현장 정보를 확인해 보세요",
+      highlights: [],
+      confidence: 0.35
+    };
+  }
+
+  const categoryLeaf = extractCategoryLeaf(place?.category || "");
+  const typeLabel = pickFirstRuleLabel(text, FAMILY_SUMMARY_RULES);
+  const detailLabel = pickFirstRuleLabel(text, FAMILY_DETAIL_RULES);
+  const blogHint = buildBlogHintSnippet(place?.blogReviews);
+  const blogReviewTotal = Number(place?.blogReviewTotal || 0);
+
+  const summaryParts = [];
+  if (categoryLeaf) {
+    summaryParts.push(`${categoryLeaf} 코스`);
+  } else if (typeLabel) {
+    summaryParts.push(typeLabel);
+  }
+
+  if (detailLabel) {
+    summaryParts.push(detailLabel);
+  } else if (typeLabel && !summaryParts.includes(typeLabel)) {
+    summaryParts.push(typeLabel);
+  } else if (blogHint) {
+    summaryParts.push(`후기: ${blogHint}`);
+  } else if (blogReviewTotal > 0) {
+    summaryParts.push(`블로그 ${blogReviewTotal}건 참고`);
+  }
+
+  const highlightCandidates = pickRuleLabels(text, FAMILY_HIGHLIGHT_RULES, 4);
+  if (blogHint && !highlightCandidates.length) {
+    highlightCandidates.push(`후기 키워드: ${blogHint}`);
+  }
+  const aiReason = String(place?.aiReason || "").trim();
+  if (aiReason && aiReason.length <= 42 && !highlightCandidates.includes(aiReason)) {
+    highlightCandidates.unshift(aiReason);
+  }
+
+  const summary = summaryParts
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(" · ")
+    .trim() || "아이와 함께 이동 동선을 확인하고 방문해 보세요";
+
+  const evidenceScore = (typeLabel ? 2 : 0) + (detailLabel ? 2 : 0) + highlightCandidates.length + (blogText ? 1 : 0);
+  const confidenceRaw = 0.38
+    + (Math.min(6, evidenceScore) * 0.07)
+    + Math.min(0.18, Math.log10(blogReviewTotal + 1) * 0.09);
+  const confidence = Math.max(0.35, Math.min(0.95, confidenceRaw));
+
+  return {
+    summary,
+    highlights: highlightCandidates.slice(0, 3),
+    confidence: Math.round(confidence * 100) / 100
+  };
 }
 
 function shouldUseAiClassifier() {
@@ -1039,8 +1274,8 @@ function buildPlaceLinksFromToken(type, id) {
 
   return {
     placeLink: `https://map.naver.com/p/entry/place/${safeId}`,
-    reviewLink: `https://m.place.naver.com/${safeType}/${safeId}/review/visitor`,
-    blogReviewLink: `https://m.place.naver.com/${safeType}/${safeId}/review/ugc`,
+    reviewLink: `https://map.naver.com/p/entry/place/${safeId}/review/visitor`,
+    blogReviewLink: `https://map.naver.com/p/entry/place/${safeId}/review/ugc`,
     mobileHomeLink: `https://m.place.naver.com/${safeType}/${safeId}/home`
   };
 }

@@ -257,12 +257,17 @@ function getNearbyQueries() {
   }
 
   const queries = [];
-  queries.push(...baseQueries.slice(0, 6));
-  queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 5));
-  queries.push(...FAMILY_STORE_QUERIES.slice(0, 3));
+  [baseQueries, PUBLIC_NEARBY_QUERIES, FAMILY_STORE_QUERIES].forEach((bucket) => {
+    bucket.forEach((query) => {
+      const normalized = String(query || "").trim();
+      if (normalized) {
+        queries.push(normalized);
+      }
+    });
+  });
 
   const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
-  return unique.slice(0, 12);
+  return unique.slice(0, 18);
 }
 
 async function refreshNearbySpots() {
@@ -390,6 +395,9 @@ function toFallbackNearbySpot(spot) {
     blogReviews: Array.isArray(spot.blogReviews) ? spot.blogReviews : [],
     aiReason: String(spot.aiReason || "").trim(),
     aiConfidence: Number.isFinite(spot.aiConfidence) ? spot.aiConfidence : null,
+    familySummary: String(spot.familySummary || "").trim(),
+    familyHighlights: normalizeFamilyHighlights(spot.familyHighlights),
+    familyConfidence: Number.isFinite(Number(spot.familyConfidence)) ? Number(spot.familyConfidence) : null,
     distanceKm: Math.round(distanceKm * 10) / 10
   };
 }
@@ -440,7 +448,10 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     ratingEstimated: Number.isFinite(ratingEstimated) ? ratingEstimated : null,
     blogReviews,
     aiReason: String(item.aiReason || "").trim(),
-    aiConfidence: Number.isFinite(Number(item.aiConfidence)) ? Number(item.aiConfidence) : null
+    aiConfidence: Number.isFinite(Number(item.aiConfidence)) ? Number(item.aiConfidence) : null,
+    familySummary: String(item.familySummary || "").trim(),
+    familyHighlights: normalizeFamilyHighlights(item.familyHighlights),
+    familyConfidence: Number.isFinite(Number(item.familyConfidence)) ? Number(item.familyConfidence) : null
   };
 }
 
@@ -456,6 +467,14 @@ function normalizeBlogReviews(reviews) {
       postDate: formatPostDate(String(review?.postDate || ""))
     }))
     .filter((review) => review.title || review.description);
+}
+
+function normalizeFamilyHighlights(highlights) {
+  if (!Array.isArray(highlights)) return [];
+  return highlights
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 function formatPostDate(raw) {
@@ -565,6 +584,7 @@ function shouldExcludePlaceFromList(name, categoryLabel, address = "", options =
   if (isGardenWithoutKidEvidence(text, blogText)) return true;
   if (isParkLikeButNotOutdoor(text)) return true;
   if (!isTargetCategoryText(text)) return true;
+  if (needsKidEvidenceByCategory(text)) return true;
   if (!isKidPlaySuitableText(text)) return true;
 
   return false;
@@ -584,6 +604,8 @@ function hasAnyKeyword(text, keywords) {
 function isClearlyIrrelevantPlaceText(text) {
   return hasAnyKeyword(text, [
     "노키즈존", "유흥", "클럽", "룸살롱", "주점", "술집", "호프", "포차",
+    "이자카야", "와인바", "와인 바", "펍", "칵테일", "칵테일바", "라운지바", "맥주집", "수제맥주",
+    "pub", "cocktail", "wine bar",
     "오피스", "사무실", "병원", "약국", "치과", "정형외과", "성형외과",
     "피부과", "중고차", "자동차정비", "세차", "부동산", "대출", "보험"
   ]);
@@ -594,6 +616,19 @@ function isTargetCategoryText(text) {
     "공원", "한강", "유적", "박물관", "미술관", "갤러리", "전시", "공연장",
     "극장", "뮤지컬", "연극", "콘서트", "놀이터", "체험", "도서관",
     "키즈카페", "카페", "식당", "레스토랑", "브런치", "서점", "완구", "키즈", "가족"
+  ]);
+}
+
+function needsKidEvidenceByCategory(text) {
+  const requiresEvidence = hasAnyKeyword(text, [
+    "카페", "식당", "레스토랑", "브런치", "서점", "완구", "매장", "쇼핑",
+    "공연장", "극장", "연극", "뮤지컬", "콘서트"
+  ]);
+  if (!requiresEvidence) return false;
+
+  return !hasAnyKeyword(text, [
+    "어린이", "유아", "아이", "아기", "키즈", "가족",
+    "유모차", "수유실", "유아의자", "아기의자", "키즈메뉴"
   ]);
 }
 
@@ -662,7 +697,9 @@ function isKidPlaySuitableText(text) {
   ];
   const cautionKeywords = [
     "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥", "오피스",
-    "사무실", "병원", "약국", "성형", "치과", "정형외과"
+    "사무실", "병원", "약국", "성형", "치과", "정형외과",
+    "이자카야", "와인바", "와인 바", "펍", "칵테일", "칵테일바", "라운지바", "맥주집", "수제맥주",
+    "pub", "cocktail", "wine bar"
   ];
 
   const playCount = countKeywordMatches(text, playKeywords);
@@ -1193,7 +1230,11 @@ function getKidSuitabilityScore(spot) {
     "유아의자", "아기의자", "키즈존", "놀이방", "키즈메뉴", "유모차",
     "공연장", "뮤지컬", "연극", "박물관", "미술관", "서점", "완구", "체험"
   ];
-  const cautionKeywords = ["노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥"];
+  const cautionKeywords = [
+    "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥",
+    "이자카야", "와인바", "와인 바", "펍", "칵테일", "칵테일바", "라운지바", "맥주집", "수제맥주",
+    "pub", "cocktail", "wine bar"
+  ];
   let score = getThemeTokenScore(text, positiveKeywords, 1.4);
   score -= getThemeTokenScore(text, cautionKeywords, 2.4);
   return score;
@@ -1455,6 +1496,7 @@ function renderNearbyPlaces() {
     const key = getSpotSelectionKey(spot);
     card.className = `nearby-place-item${selectedKeys.has(key) ? " active" : ""}`;
 
+    const placeNameMarkup = buildPlaceNameMarkup(spot);
     const categoryText = getSpotCategoryChipText(spot);
     const distanceText = formatDistanceText(spot.distanceKm);
     const locationMeta = [spot.address || "", distanceText]
@@ -1463,6 +1505,7 @@ function renderNearbyPlaces() {
     const ratingLabel = getSpotRatingLabel(spot);
     const blogCountLabel = getSpotBlogCountLabel(spot);
     const placeFeature = buildPlaceFeatureSummary(spot);
+    const familyHighlightsMarkup = buildFamilyHighlightsMarkup(spot);
     const quickLinkItems = [];
     const phoneMarkup = buildPhoneMarkup(spot.telephone);
     if (phoneMarkup) {
@@ -1494,7 +1537,7 @@ function renderNearbyPlaces() {
         </div>
         <div class="nearby-item-content">
           <div class="nearby-title-row">
-            <p class="nearby-place-name">${escapeHtml(spot.name)}</p>
+            ${placeNameMarkup}
             <span class="nearby-category-chip">${escapeHtml(categoryText)}</span>
           </div>
           <div class="nearby-metric-row">
@@ -1503,6 +1546,7 @@ function renderNearbyPlaces() {
           </div>
           <p class="nearby-place-meta">${escapeHtml(locationMeta || "주소 정보 없음")}</p>
           <p class="nearby-place-feature"><span class="nearby-feature-label">여기는</span>${escapeHtml(placeFeature)}</p>
+          ${familyHighlightsMarkup}
         </div>
       </div>
       ${quickLinksMarkup}
@@ -1561,7 +1605,21 @@ function buildMetricLinkMarkup(href, label, className) {
   return `<a class="${className} nearby-metric-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${safeLabel}</a>`;
 }
 
+function buildPlaceNameMarkup(spot) {
+  const name = escapeHtml(spot?.name || "");
+  const safeHref = toSafeExternalUrl(spot?.placeLink || spot?.reviewLink || spot?.blogReviewLink || "");
+  if (!safeHref) {
+    return `<p class="nearby-place-name">${name}</p>`;
+  }
+  return `<a class="nearby-place-name nearby-place-name-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+}
+
 function buildPlaceFeatureSummary(spot) {
+  const preferredSummary = String(spot.familySummary || "").trim();
+  if (preferredSummary) {
+    return preferredSummary;
+  }
+
   const sourceText = [
     spot.name || "",
     spot.categoryLabel || "",
@@ -1625,6 +1683,15 @@ function buildPlaceFeatureSummary(spot) {
   }
 
   return [...play, ...benefit].slice(0, 2).join(" · ");
+}
+
+function buildFamilyHighlightsMarkup(spot) {
+  const highlights = normalizeFamilyHighlights(spot?.familyHighlights);
+  if (!highlights.length) return "";
+  const chips = highlights
+    .map((label) => `<span class="nearby-highlight-chip">${escapeHtml(label)}</span>`)
+    .join("");
+  return `<div class="nearby-highlight-row">${chips}</div>`;
 }
 
 function pushUniqueSummary(collection, item) {
