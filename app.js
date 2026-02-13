@@ -10,7 +10,8 @@ const SPOT_COLOR = "#43a563";
 const ACTIVE_SPOT_COLOR = "#1f6a40";
 const DEFAULT_RESULTS_CAPTION = "지금 우리 아이랑 놀기 좋은 곳의 동선을 확인해보세요";
 const BASE_NEARBY_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터"];
-const PUBLIC_NEARBY_QUERIES = ["공원", "한강공원", "유적지", "박물관", "어린이박물관"];
+const PUBLIC_NEARBY_QUERIES = ["공원", "한강공원", "유적지", "박물관", "어린이박물관", "미술관", "공연장"];
+const FAMILY_STORE_QUERIES = ["키즈카페", "유아 동반 식당", "가족 식당", "서점", "완구점"];
 const MIN_PUBLIC_PLACE_RESULTS = 3;
 const ROUTE_STRATEGIES = [
   { key: "closestFromHere", label: "여기서 가까운 코스" },
@@ -30,7 +31,11 @@ const staticSpots = [
   { id: "s7", name: "물놀이 광장", lat: 37.578, lng: 126.986, minAge: 20, maxAge: 72, stayMin: 40, type: "outdoor" },
   { id: "s8", name: "부모-아이 공예 스튜디오", lat: 37.571, lng: 126.969, minAge: 24, maxAge: 72, stayMin: 35, type: "creative" },
   { id: "s12", name: "역사 유적 산책길", lat: 37.565, lng: 126.977, minAge: 18, maxAge: 72, stayMin: 40, type: "heritage" },
-  { id: "s13", name: "한강 가족공원", lat: 37.531, lng: 126.932, minAge: 12, maxAge: 72, stayMin: 45, type: "park" }
+  { id: "s13", name: "한강 가족공원", lat: 37.531, lng: 126.932, minAge: 12, maxAge: 72, stayMin: 45, type: "park" },
+  { id: "s14", name: "아동 미술 전시관", lat: 37.575, lng: 126.982, minAge: 18, maxAge: 72, stayMin: 50, type: "gallery" },
+  { id: "s15", name: "가족 공연 소극장", lat: 37.568, lng: 126.975, minAge: 24, maxAge: 72, stayMin: 60, type: "performance" },
+  { id: "s16", name: "아이와 가는 키즈 서점", lat: 37.572, lng: 126.972, minAge: 12, maxAge: 72, stayMin: 35, type: "shop" },
+  { id: "s17", name: "유아 동반 브런치 카페", lat: 37.57, lng: 126.981, minAge: 12, maxAge: 72, stayMin: 45, type: "cafe" }
 ];
 
 let spots = [...staticSpots];
@@ -252,11 +257,12 @@ function getNearbyQueries() {
   }
 
   const queries = [];
-  queries.push(...baseQueries.slice(0, 4));
-  queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 4));
+  queries.push(...baseQueries.slice(0, 6));
+  queries.push(...PUBLIC_NEARBY_QUERIES.slice(0, 5));
+  queries.push(...FAMILY_STORE_QUERIES.slice(0, 3));
 
   const unique = [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
-  return unique.slice(0, 8);
+  return unique.slice(0, 12);
 }
 
 async function refreshNearbySpots() {
@@ -382,6 +388,8 @@ function toFallbackNearbySpot(spot) {
     blogReviewTotal: Number.isFinite(spot.blogReviewTotal) ? spot.blogReviewTotal : 0,
     ratingEstimated: Number.isFinite(spot.ratingEstimated) ? spot.ratingEstimated : null,
     blogReviews: Array.isArray(spot.blogReviews) ? spot.blogReviews : [],
+    aiReason: String(spot.aiReason || "").trim(),
+    aiConfidence: Number.isFinite(spot.aiConfidence) ? spot.aiConfidence : null,
     distanceKm: Math.round(distanceKm * 10) / 10
   };
 }
@@ -406,7 +414,6 @@ function toLiveSpot(item, idx, maxDistanceKm) {
   if (shouldExcludePlaceFromList(name, categoryLabel, address, { blogReviews })) return null;
 
   const spotType = detectSpotType(name, categoryLabel);
-  if (isExcludedSpotType(spotType)) return null;
   const stayMin = estimateStayMinutes(name, categoryLabel);
   const ratingEstimated = Number(item.ratingEstimated);
 
@@ -431,7 +438,9 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     photoLink: toSafeExternalUrl(item.photoLink || ""),
     blogReviewTotal: Number.isFinite(blogReviewTotal) ? blogReviewTotal : 0,
     ratingEstimated: Number.isFinite(ratingEstimated) ? ratingEstimated : null,
-    blogReviews
+    blogReviews,
+    aiReason: String(item.aiReason || "").trim(),
+    aiConfidence: Number.isFinite(Number(item.aiConfidence)) ? Number(item.aiConfidence) : null
   };
 }
 
@@ -506,7 +515,11 @@ function isValidLatLng(lat, lng) {
 function estimateStayMinutes(name, category) {
   const text = `${name} ${category}`.toLowerCase();
   if (text.includes("도서관")) return 35;
-  if (text.includes("체험") || text.includes("박물관")) return 45;
+  if (text.includes("체험") || text.includes("박물관") || text.includes("미술관") || text.includes("전시")) return 45;
+  if (text.includes("공연") || text.includes("연극") || text.includes("뮤지컬") || text.includes("극장")) return 60;
+  if (text.includes("식당") || text.includes("레스토랑")) return 50;
+  if (text.includes("카페") || text.includes("브런치")) return 40;
+  if (text.includes("서점") || text.includes("완구")) return 35;
   if (text.includes("놀이터") || text.includes("공원")) return 35;
   return 30;
 }
@@ -515,31 +528,43 @@ function detectSpotType(name, categoryLabel) {
   const text = `${name} ${categoryLabel}`.toLowerCase();
   const includesAny = (keywords) => keywords.some((keyword) => text.includes(keyword));
 
+  if (includesAny(["공연장", "극장", "연극", "뮤지컬", "콘서트", "공연"])) {
+    return "performance";
+  }
+  if (includesAny(["미술관", "갤러리", "전시"])) {
+    return "gallery";
+  }
+  if (includesAny(["유적", "기념관", "문화재"])) {
+    return "heritage";
+  }
+  if (includesAny(["박물관", "뮤지엄", "과학관"])) {
+    return "museum";
+  }
+  if (includesAny(["서점", "완구", "문구", "키즈샵", "장난감"])) {
+    return "shop";
+  }
   if (includesAny(["카페", "커피", "디저트", "브런치"])) {
     return "cafe";
   }
   if (includesAny(["식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "피자", "치킨"])) {
     return "restaurant";
   }
-  if (includesAny(["행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회"])) {
-    return "event";
+  if (includesAny(["공원", "한강", "산책", "숲", "정원"])) {
+    return "park";
   }
   return "nearby";
-}
-
-function isExcludedSpotType(type) {
-  return type === "cafe" || type === "restaurant" || type === "event";
 }
 
 function shouldExcludePlaceFromList(name, categoryLabel, address = "", options = {}) {
   const blogText = extractBlogReviewText(options.blogReviews);
   const text = buildPlaceSearchText(name, categoryLabel, address, blogText);
 
-  if (isExcludedActivityText(text)) return true;
+  if (isClearlyIrrelevantPlaceText(text)) return true;
   if (isPhotoRelatedText(text)) return true;
-  if (isEducationFacilityText(text)) return true;
+  if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return true;
   if (isGardenWithoutKidEvidence(text, blogText)) return true;
   if (isParkLikeButNotOutdoor(text)) return true;
+  if (!isTargetCategoryText(text)) return true;
   if (!isKidPlaySuitableText(text)) return true;
 
   return false;
@@ -556,11 +581,19 @@ function hasAnyKeyword(text, keywords) {
   return keywords.some((keyword) => text.includes(keyword));
 }
 
-function isExcludedActivityText(text) {
+function isClearlyIrrelevantPlaceText(text) {
   return hasAnyKeyword(text, [
-    "카페", "커피", "디저트", "브런치",
-    "식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "치킨", "피자", "버거",
-    "행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회"
+    "노키즈존", "유흥", "클럽", "룸살롱", "주점", "술집", "호프", "포차",
+    "오피스", "사무실", "병원", "약국", "치과", "정형외과", "성형외과",
+    "피부과", "중고차", "자동차정비", "세차", "부동산", "대출", "보험"
+  ]);
+}
+
+function isTargetCategoryText(text) {
+  return hasAnyKeyword(text, [
+    "공원", "한강", "유적", "박물관", "미술관", "갤러리", "전시", "공연장",
+    "극장", "뮤지컬", "연극", "콘서트", "놀이터", "체험", "도서관",
+    "키즈카페", "카페", "식당", "레스토랑", "브런치", "서점", "완구", "키즈", "가족"
   ]);
 }
 
@@ -571,12 +604,18 @@ function isEducationFacilityText(text) {
   ]);
 }
 
+function isKidCultureFacilityText(text) {
+  return hasAnyKeyword(text, [
+    "어린이도서관", "어린이박물관", "유아체험", "키즈센터", "아동미술관"
+  ]);
+}
+
 function isPhotoRelatedText(text) {
   return hasAnyKeyword(text, [
     "사진관", "사진 스튜디오", "사진스튜디오", "포토스튜디오",
     "프로필 촬영", "셀프사진관", "사진촬영", "증명사진",
     "인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처", "포토매틱", "셀픽스",
-    "사진", "포토부스", "스냅"
+    "포토부스", "스냅"
   ]);
 }
 
@@ -595,7 +634,9 @@ function isGardenWithoutKidEvidence(baseText, blogText) {
     return false;
   }
   if (!blogText) {
-    return true;
+    return !hasAnyKeyword(baseText, [
+      "어린이", "유아", "아이", "아기", "가족", "산책", "야외", "숲", "피크닉", "키즈"
+    ]);
   }
   const evidenceText = `${baseText} ${blogText}`;
   return !hasAnyKeyword(evidenceText, [
@@ -612,10 +653,12 @@ function isKidPlaySuitableText(text) {
   const playKeywords = [
     "놀이터", "놀이", "체험", "박물관", "도서관", "공원", "숲", "산책",
     "야외", "자연", "키즈", "가족공원", "과학관", "미술관", "동물",
-    "실내", "체육관", "공예", "공방", "만들기"
+    "실내", "체육관", "공예", "공방", "만들기", "공연장", "연극",
+    "뮤지컬", "콘서트", "갤러리", "전시", "유적", "카페", "식당", "서점", "완구"
   ];
   const kidKeywords = [
-    "어린이", "유아", "아이", "아기", "키즈", "가족", "유모차", "수유실"
+    "어린이", "유아", "아이", "아기", "키즈", "가족", "유모차", "수유실",
+    "유아의자", "아기의자", "키즈메뉴"
   ];
   const cautionKeywords = [
     "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥", "오피스",
@@ -628,7 +671,7 @@ function isKidPlaySuitableText(text) {
   const score = (playCount * 2.2) + (kidCount * 1.3) - (cautionCount * 2.4);
 
   if (playCount === 0 && kidCount === 0) return false;
-  return score >= 1.8;
+  return score >= 1.3;
 }
 
 function isParkLikeButNotOutdoor(text) {
@@ -1114,11 +1157,11 @@ function getIndoorThemeScore(spot) {
   const text = buildSpotSearchText(spot);
   let score = 0;
 
-  if (["indoor", "library", "museum", "creative"].includes(String(spot.type || "").toLowerCase())) {
+  if (["indoor", "library", "museum", "creative", "gallery", "performance", "shop", "cafe", "restaurant"].includes(String(spot.type || "").toLowerCase())) {
     score += 2.4;
   }
-  score += getThemeTokenScore(text, ["실내", "체험", "도서관", "박물관", "공방", "만들기"], 2.2);
-  score += getThemeTokenScore(text, ["수유실", "유모차", "주차", "편의시설"], 0.8);
+  score += getThemeTokenScore(text, ["실내", "체험", "도서관", "박물관", "미술관", "공연장", "공방", "만들기", "서점"], 2.2);
+  score += getThemeTokenScore(text, ["수유실", "유모차", "주차", "편의시설", "아기의자", "키즈메뉴"], 0.8);
 
   return score;
 }
@@ -1127,11 +1170,11 @@ function getOutdoorThemeScore(spot) {
   const text = buildSpotSearchText(spot);
   let score = 0;
 
-  if (["outdoor", "park", "playground", "experience"].includes(String(spot.type || "").toLowerCase())) {
+  if (["outdoor", "park", "playground", "experience", "heritage"].includes(String(spot.type || "").toLowerCase())) {
     score += 2.4;
   }
-  score += getThemeTokenScore(text, ["공원", "놀이터", "야외", "산책", "숲", "잔디", "자연", "동물"], 2.2);
-  score += getThemeTokenScore(text, ["피크닉", "물놀이", "체험"], 0.8);
+  score += getThemeTokenScore(text, ["공원", "놀이터", "야외", "산책", "숲", "잔디", "자연", "동물", "유적", "한강"], 2.2);
+  score += getThemeTokenScore(text, ["피크닉", "물놀이", "체험", "가족공원"], 0.8);
 
   return score;
 }
@@ -1147,7 +1190,8 @@ function getKidSuitabilityScore(spot) {
   const text = buildSpotSearchText(spot);
   const positiveKeywords = [
     "키즈", "유아", "아기", "아이", "어린이", "가족", "패밀리", "수유실",
-    "유아의자", "아기의자", "키즈존", "놀이방", "키즈메뉴", "유모차"
+    "유아의자", "아기의자", "키즈존", "놀이방", "키즈메뉴", "유모차",
+    "공연장", "뮤지컬", "연극", "박물관", "미술관", "서점", "완구", "체험"
   ];
   const cautionKeywords = ["노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥"];
   let score = getThemeTokenScore(text, positiveKeywords, 1.4);
@@ -1545,6 +1589,15 @@ function buildPlaceFeatureSummary(spot) {
   if (hasKeyword("도서관", "그림책", "독서", "책놀이", "박물관", "미술관", "기념관")) {
     pushUniqueSummary(play, "도서관/박물관처럼 배움형 공공장소와 함께 구성하기 좋아요");
   }
+  if (hasKeyword("공연장", "연극", "뮤지컬", "콘서트", "극장")) {
+    pushUniqueSummary(play, "아이 눈높이 공연이나 문화 체험을 코스에 넣기 좋아요");
+  }
+  if (hasKeyword("카페", "브런치", "식당", "레스토랑", "키즈메뉴", "아기의자")) {
+    pushUniqueSummary(play, "놀이 동선 중간에 쉬거나 식사하기 좋은 장소예요");
+  }
+  if (hasKeyword("서점", "완구", "장난감", "키즈샵")) {
+    pushUniqueSummary(play, "가볍게 들러 아이 흥미를 이어가기 좋은 매장형 코스예요");
+  }
   if (!play.length) {
     pushUniqueSummary(play, "아이 눈높이에 맞는 가벼운 놀이 코스로 방문하기 좋아요");
   }
@@ -1563,6 +1616,9 @@ function buildPlaceFeatureSummary(spot) {
   }
   if (Number.isFinite(spot.blogReviewTotal) && spot.blogReviewTotal >= 20) {
     pushUniqueSummary(benefit, "후기 수가 비교적 많아 방문 전 참고 정보가 충분한 편이에요");
+  }
+  if (spot.aiReason) {
+    pushUniqueSummary(benefit, spot.aiReason);
   }
   if (!benefit.length) {
     pushUniqueSummary(benefit, "근처 장소와 묶어 반나절 코스로 구성하기 좋아요");

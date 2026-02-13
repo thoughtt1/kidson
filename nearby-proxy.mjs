@@ -3,14 +3,16 @@ import http from "node:http";
 const PORT = Number(process.env.PORT || 8787);
 const NAVER_CLIENT_ID = (process.env.NAVER_SEARCH_CLIENT_ID || "").trim();
 const NAVER_CLIENT_SECRET = (process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim();
-const DEFAULT_QUERIES = ["실내놀이터", "어린이도서관", "유아 체험", "놀이터", "공원"];
+const DEFAULT_QUERIES = ["실내놀이터", "어린이도서관", "공원", "유적지", "박물관", "미술관", "공연장", "유아 동반 식당"];
 const PLAY_KEYWORDS = [
   "놀이터", "놀이", "체험", "박물관", "도서관", "공원", "숲", "산책",
   "야외", "자연", "과학관", "미술관", "동물", "유적", "광장", "한강",
-  "실내", "체육관", "공예", "공방", "만들기"
+  "실내", "체육관", "공예", "공방", "만들기", "공연장", "연극", "뮤지컬",
+  "콘서트", "극장", "카페", "식당", "레스토랑", "브런치", "서점", "완구"
 ];
 const KID_KEYWORDS = [
-  "어린이", "유아", "아이", "아기", "키즈", "가족", "유모차", "수유실"
+  "어린이", "유아", "아이", "아기", "키즈", "가족", "유모차", "수유실",
+  "아기의자", "유아의자", "키즈메뉴"
 ];
 const KID_UNSUITABLE_KEYWORDS = [
   "노키즈존", "주점", "술집", "포차", "호프", "클럽", "유흥",
@@ -20,6 +22,11 @@ const GARDEN_KEYWORDS = ["정원", "가든", "수목원", "식물원"];
 const GARDEN_KID_EVIDENCE_KEYWORDS = [
   "어린이", "유아", "아이", "아기", "가족", "놀이터", "놀이", "체험",
   "산책", "야외", "숲", "피크닉", "유모차", "키즈"
+];
+const TARGET_CATEGORY_KEYWORDS = [
+  "공원", "한강", "유적", "박물관", "미술관", "갤러리", "전시", "공연장",
+  "극장", "연극", "뮤지컬", "콘서트", "놀이터", "체험", "도서관",
+  "카페", "식당", "레스토랑", "브런치", "서점", "완구", "키즈", "가족"
 ];
 const MAX_DETAIL_ITEMS = 12;
 const MAX_RESULTS = 30;
@@ -301,16 +308,16 @@ function normalizeLocalItem(item, originLat, originLng) {
 
 function shouldExcludeItem(title, category, roadAddress, address) {
   const text = buildFilterText(title, category, roadAddress, address);
-  if (isExcludedActivityText(text)) return true;
+  if (isClearlyIrrelevantPlaceText(text)) return true;
   if (isPhotoRelatedText(text)) return true;
-  if (isEducationFacilityText(text)) return true;
+  if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return true;
   return false;
 }
 
 function isExcludedSearchQuery(query) {
   const text = buildFilterText(query);
   if (!text) return true;
-  if (isExcludedActivityText(text)) return true;
+  if (isClearlyIrrelevantPlaceText(text)) return true;
   if (isPhotoRelatedText(text)) return true;
   return false;
 }
@@ -330,11 +337,11 @@ function countKeywordMatches(text, keywords) {
   return keywords.reduce((count, keyword) => count + (text.includes(keyword) ? 1 : 0), 0);
 }
 
-function isExcludedActivityText(text) {
+function isClearlyIrrelevantPlaceText(text) {
   return hasAnyKeyword(text, [
-    "카페", "커피", "디저트", "브런치",
-    "식당", "레스토랑", "음식점", "한식", "양식", "일식", "중식", "분식", "치킨", "피자", "버거", "패스트푸드",
-    "행사", "축제", "공연", "페스티벌", "콘서트", "뮤지컬", "전시회"
+    "노키즈존", "유흥", "클럽", "룸살롱", "주점", "술집", "호프", "포차",
+    "오피스", "사무실", "병원", "약국", "치과", "정형외과", "성형외과",
+    "피부과", "중고차", "자동차정비", "세차", "부동산", "대출", "보험"
   ]);
 }
 
@@ -343,7 +350,7 @@ function isPhotoRelatedText(text) {
     "사진관", "사진 스튜디오", "사진스튜디오", "포토스튜디오",
     "프로필 촬영", "셀프사진관", "사진촬영", "증명사진",
     "인생네컷", "포토이즘", "하루필름", "포토그레이", "포토시그니처", "포토매틱", "셀픽스",
-    "사진", "포토부스", "스냅"
+    "포토부스", "스냅"
   ]);
 }
 
@@ -351,6 +358,12 @@ function isEducationFacilityText(text) {
   return hasAnyKeyword(text, [
     "학원", "교습소", "공부방", "어학원", "교육원", "영어유치원",
     "어린이집", "유치원", "초등학교", "중학교", "고등학교"
+  ]);
+}
+
+function isKidCultureFacilityText(text) {
+  return hasAnyKeyword(text, [
+    "어린이도서관", "어린이박물관", "유아체험", "키즈센터", "아동미술관"
   ]);
 }
 
@@ -371,7 +384,10 @@ function extractBlogReviewText(reviews) {
 function isGardenWithoutKidEvidence(baseText, blogText, allowUnverifiedGarden = false) {
   if (!containsGardenKeyword(baseText)) return false;
   if (!blogText) {
-    return !allowUnverifiedGarden;
+    if (allowUnverifiedGarden) return false;
+    return !hasAnyKeyword(baseText, [
+      "어린이", "유아", "아이", "아기", "가족", "산책", "야외", "숲", "피크닉", "키즈"
+    ]);
   }
   const evidenceText = buildFilterText(baseText, blogText);
   return !hasAnyKeyword(evidenceText, GARDEN_KID_EVIDENCE_KEYWORDS);
@@ -390,10 +406,11 @@ function isKidPlaySuitablePlace(place, options = {}) {
   const text = buildFilterText(baseText, blogText);
 
   if (!text) return false;
-  if (isExcludedActivityText(text)) return false;
+  if (isClearlyIrrelevantPlaceText(text)) return false;
   if (isPhotoRelatedText(text)) return false;
-  if (isEducationFacilityText(text)) return false;
+  if (isEducationFacilityText(text) && !isKidCultureFacilityText(text)) return false;
   if (isGardenWithoutKidEvidence(baseText, blogText, allowUnverifiedGarden)) return false;
+  if (!hasAnyKeyword(text, TARGET_CATEGORY_KEYWORDS)) return false;
 
   const playCount = countKeywordMatches(text, PLAY_KEYWORDS);
   const kidCount = countKeywordMatches(text, KID_KEYWORDS);
@@ -401,7 +418,7 @@ function isKidPlaySuitablePlace(place, options = {}) {
   const score = (playCount * 2.2) + (kidCount * 1.3) - (cautionCount * 2.4);
 
   if (playCount === 0 && kidCount === 0) return false;
-  return score >= 1.8;
+  return score >= 1.3;
 }
 
 function shouldUseAiClassifier() {
@@ -463,11 +480,11 @@ function setCachedAiSuitability(cacheKey, value) {
 function buildAiCandidate(place, id) {
   const blogSummary = Array.isArray(place?.blogReviews)
     ? place.blogReviews
-      .slice(0, 2)
+      .slice(0, 4)
       .map((review) => `${String(review?.title || "").trim()} ${String(review?.description || "").trim()}`.trim())
       .filter(Boolean)
       .join(" | ")
-      .slice(0, 700)
+      .slice(0, 1200)
     : "";
 
   return {
@@ -476,6 +493,7 @@ function buildAiCandidate(place, id) {
     category: String(place?.category || "").trim(),
     address: String(place?.roadAddress || place?.address || "").trim(),
     description: String(place?.description || "").trim(),
+    blogReviewTotal: Number(place?.blogReviewTotal || 0),
     blogSummary
   };
 }
@@ -543,17 +561,19 @@ async function classifyPlacesWithOpenAi(candidates) {
         messages: [
           {
             role: "system",
-            content: "당신은 12개월~6세 유아/아동 장소 분류기다. 사진촬영 장소, 성인/유흥/비놀이 장소는 제외해야 한다. 정원은 아이 동반 놀이/산책 근거가 없으면 제외한다."
+            content: "당신은 12개월~6세 유아/아동 동반 장소 분류기다. 네이버 지도/블로그 정보 기반으로 가족 방문 적합도를 판정한다. 사진촬영 전용 장소, 성인/유흥/비가족 장소는 제외한다."
           },
           {
             role: "user",
             content: [
               "다음 후보 장소를 suitable(추천) / unsuitable(제외)로 분류해줘.",
               "판정 기준:",
-              "1) 12개월~6세 아이와 실제로 놀거나 체험하기 적합한가",
-              "2) 사진관/포토부스/인생네컷 계열은 무조건 제외",
-              "3) 학원/어린이집/의료/사무/유흥 계열은 제외",
-              "4) 정원/가든은 아이 동반 놀이/산책 근거가 있어야 추천",
+              "1) 12개월~6세 아이와 실제로 시간을 보내기 적합한가",
+              "2) 추천 대상은 공원/유적지/박물관/미술관/공연장/가족친화 가게(카페·식당·서점·완구점 포함)",
+              "3) 블로그 요약에서 유아 동반 동선, 편의시설, 실제 체험 근거를 우선 반영",
+              "4) 사진관/포토부스/인생네컷 계열은 무조건 제외",
+              "5) 학원/어린이집/의료/사무/유흥 계열은 제외",
+              "6) 정원/가든은 아이 동반 놀이·산책 근거가 부족하면 제외",
               "후보 JSON:",
               JSON.stringify({ candidates })
             ].join("\n")
@@ -1145,30 +1165,64 @@ async function fetchImageSnippet(query) {
 async function fetchBlogReviews(query) {
   if (!query) return { total: 0, reviews: [] };
 
+  const plans = [
+    { query, sort: "sim", display: 5 },
+    { query, sort: "date", display: 5 },
+    { query: `${query} 아이와 함께`, sort: "sim", display: 4 }
+  ];
+  const settled = await Promise.all(plans.map((plan) => fetchBlogPlan(plan)));
+  const deduped = new Map();
+  let maxTotal = 0;
+
+  settled.forEach((result) => {
+    if (!result) return;
+    if (Number.isFinite(result.total)) {
+      maxTotal = Math.max(maxTotal, result.total);
+    }
+    result.reviews.forEach((review) => {
+      const key = String(review.link || "").trim() || `${review.title}|${review.postDate}`;
+      if (!key || deduped.has(key)) return;
+      deduped.set(key, review);
+    });
+  });
+
+  const merged = [...deduped.values()].slice(0, 6);
+  return {
+    total: Math.max(maxTotal, merged.length),
+    reviews: merged
+  };
+}
+
+async function fetchBlogPlan(plan) {
+  const query = String(plan?.query || "").trim();
+  if (!query) return null;
+
   const url = new URL("https://openapi.naver.com/v1/search/blog.json");
   url.searchParams.set("query", query);
-  url.searchParams.set("display", "3");
+  url.searchParams.set("display", String(plan?.display || 3));
   url.searchParams.set("start", "1");
-  url.searchParams.set("sort", "sim");
+  url.searchParams.set("sort", String(plan?.sort || "sim"));
 
   const response = await requestNaverApi(url);
   if (!response.ok) {
-    return { total: 0, reviews: [] };
+    return null;
   }
 
   const data = await response.json();
   const items = Array.isArray(data.items) ? data.items : [];
-  const reviews = items.map((item) => ({
-    title: stripHtml(item.title || "").trim(),
-    description: stripHtml(item.description || "").trim(),
-    link: toHttpsUrl(item.link || ""),
-    bloggerName: stripHtml(item.bloggername || "").trim(),
-    postDate: String(item.postdate || "")
-  }));
-
   return {
     total: Number(data.total || 0),
-    reviews
+    reviews: items.map(normalizeBlogItem).filter((item) => item.title || item.description)
+  };
+}
+
+function normalizeBlogItem(item) {
+  return {
+    title: stripHtml(item?.title || "").trim(),
+    description: stripHtml(item?.description || "").trim(),
+    link: toHttpsUrl(item?.link || ""),
+    bloggerName: stripHtml(item?.bloggername || "").trim(),
+    postDate: String(item?.postdate || "")
   };
 }
 

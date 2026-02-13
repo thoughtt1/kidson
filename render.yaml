@@ -13,7 +13,7 @@ services:
       - key: NAVER_SEARCH_CLIENT_SECRET
         sync: false
       - key: AI_CLASSIFIER_ENABLED
-        value: "0"
+        value: "1"
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
