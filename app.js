@@ -1633,11 +1633,13 @@ function buildPlaceNameMarkup(spot) {
   const directPlaceUrl = candidateUrls
     .map((url) => toSafeExternalUrl(url))
     .find((url) => isDirectNaverPlaceUrl(url));
+  const mapPointUrl = buildNaverMapPointUrl(spot?.lat, spot?.lng);
+  const finalUrl = directPlaceUrl || mapPointUrl;
 
-  if (!directPlaceUrl) {
+  if (!finalUrl) {
     return `<p class="nearby-place-name">${name}</p>`;
   }
-  return `<a class="nearby-place-name nearby-place-name-link" href="${escapeHtml(directPlaceUrl)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+  return `<a class="nearby-place-name nearby-place-name-link" href="${escapeHtml(finalUrl)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
 }
 
 function isDirectNaverPlaceUrl(url) {
@@ -1658,6 +1660,16 @@ function isDirectNaverPlaceUrl(url) {
   } catch {
     return false;
   }
+}
+
+function buildNaverMapPointUrl(lat, lng) {
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return "";
+  if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) return "";
+
+  const coord = `${lngNum.toFixed(6)},${latNum.toFixed(6)},15,0,0,0,dh`;
+  return `https://map.naver.com/p?c=${encodeURIComponent(coord)}`;
 }
 
 function buildPlaceFeatureSummary(spot) {

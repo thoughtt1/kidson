@@ -325,7 +325,7 @@ async function searchNearbyFromNaver({
 
   places = places.slice(0, MAX_RESULTS);
   places.forEach((place) => {
-    const normalizedLinks = normalizeNaverPlaceLinks(place.placeLink || "") || buildFallbackPlaceLinks(place);
+    const normalizedLinks = normalizeNaverPlaceLinks(place.placeLink || "") || buildFallbackPlaceLinks();
     place.placeLink = normalizedLinks.placeLink;
     place.reviewLink = normalizedLinks.reviewLink;
     place.blogReviewLink = normalizedLinks.blogReviewLink;
@@ -1089,11 +1089,12 @@ async function resolveNaverPlaceLinks(place, areaHint) {
     return directLinks;
   }
 
-  const webQuery = buildWebLookupQuery(place, areaHint);
-  const webCandidates = await fetchWebSearchCandidates(webQuery);
+  const webQueries = buildWebLookupQueries(place, areaHint);
+  const settled = await Promise.all(webQueries.map((query) => fetchWebSearchCandidates(query)));
+  const webCandidates = settled.flat();
   const bestCandidate = pickBestPlaceCandidate(webCandidates, place);
   const resolvedLinks = normalizeNaverPlaceLinks(bestCandidate?.link || "")
-    || buildFallbackPlaceLinks(place);
+    || buildFallbackPlaceLinks();
 
   setCachedPlaceLinks(cacheKey, resolvedLinks);
   return resolvedLinks;
@@ -1133,16 +1134,20 @@ function setCachedPlaceLinks(cacheKey, value) {
   });
 }
 
-function buildWebLookupQuery(place, areaHint) {
-  return [
-    areaHint,
-    place?.roadAddress || place?.address || "",
-    place?.title || "",
-    "네이버지도"
+function buildWebLookupQueries(place, areaHint) {
+  const placeName = String(place?.title || "").trim();
+  const roadAddress = String(place?.roadAddress || place?.address || "").trim();
+  const regionHint = String(areaHint || "").trim();
+  const candidates = [
+    [regionHint, roadAddress, placeName, "네이버지도"].filter(Boolean).join(" "),
+    [placeName, roadAddress, "네이버플레이스"].filter(Boolean).join(" "),
+    [placeName, "m.place.naver.com"].filter(Boolean).join(" "),
+    [placeName, "map.naver.com", "entry place"].filter(Boolean).join(" ")
   ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(" ");
+    .map((query) => normalizeSpace(query))
+    .filter(Boolean);
+
+  return [...new Set(candidates)].slice(0, 4);
 }
 
 async function fetchWebSearchCandidates(query) {
@@ -1167,9 +1172,64 @@ async function fetchWebSearchCandidates(query) {
     .map((item) => ({
       title: stripHtml(item.title || "").trim(),
       description: stripHtml(item.description || "").trim(),
-      link: toHttpsUrl(item.link || "")
+      link: normalizeSearchResultLink(item.link || "")
     }))
     .filter((item) => item.link);
+}
+
+function normalizeSearchResultLink(rawLink) {
+  const direct = toHttpsUrl(rawLink || "");
+  if (!direct) return "";
+
+  const extracted = extractNestedNaverPlaceUrl(direct);
+  if (extracted) return extracted;
+  return direct;
+}
+
+function extractNestedNaverPlaceUrl(rawUrl) {
+  const safeUrl = toHttpsUrl(rawUrl);
+  if (!safeUrl) return "";
+
+  if (isLikelyNaverPlaceUrl(safeUrl)) {
+    return safeUrl;
+  }
+
+  try {
+    const parsed = new URL(safeUrl);
+    const maybeEncoded = [
+      parsed.searchParams.get("url") || "",
+      parsed.searchParams.get("u") || "",
+      parsed.searchParams.get("link") || "",
+      parsed.searchParams.get("target") || ""
+    ];
+
+    for (const candidate of maybeEncoded) {
+      if (!candidate) continue;
+      const decodedOnce = safeDecodeURIComponent(candidate);
+      const decodedTwice = safeDecodeURIComponent(decodedOnce);
+      const nestedCandidates = [candidate, decodedOnce, decodedTwice];
+      const nested = nestedCandidates
+        .map((value) => toHttpsUrl(value))
+        .find((value) => isLikelyNaverPlaceUrl(value));
+      if (nested) {
+        return nested;
+      }
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function safeDecodeURIComponent(value) {
+  const raw = String(value || "");
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function pickBestPlaceCandidate(candidates, place) {
@@ -1292,7 +1352,7 @@ function buildPlaceLinksFromToken(type, id) {
   };
 }
 
-function buildFallbackPlaceLinks(place) {
+function buildFallbackPlaceLinks() {
   return {
     placeLink: "",
     reviewLink: "",
