@@ -329,6 +329,7 @@ async function searchNearbyFromNaver({
     place.placeLink = normalizedLinks.placeLink;
     place.reviewLink = normalizedLinks.reviewLink;
     place.blogReviewLink = normalizedLinks.blogReviewLink;
+    place.mobileHomeLink = normalizedLinks.mobileHomeLink || "";
   });
 
   if (!withDetails || !places.length) {
@@ -349,6 +350,7 @@ async function searchNearbyFromNaver({
     place.placeLink = detail.placeLink || buildMapSearchUrlForPlace(place);
     place.reviewLink = detail.reviewLink || place.placeLink;
     place.blogReviewLink = detail.blogReviewLink || place.placeLink;
+    place.mobileHomeLink = detail.mobileHomeLink || place.mobileHomeLink || "";
     place.photoThumbnail = detail.photoThumbnail || "";
     place.photoLink = detail.photoLink || place.placeLink || "";
     place.blogReviewTotal = detail.blogReviewTotal || 0;
@@ -404,6 +406,7 @@ function normalizeLocalItem(item, originLat, originLng) {
     placeLink: toHttpsUrl(item.link || ""),
     reviewLink: "",
     blogReviewLink: "",
+    mobileHomeLink: "",
     distanceKm: Number.isFinite(distanceKm) ? Math.round(distanceKm * 1000) / 1000 : null
   };
 }
@@ -1043,12 +1046,14 @@ async function fetchPlaceDetail(place, areaHint) {
   const placeLink = placeLinks.placeLink || buildMapSearchUrlForPlace(place);
   const reviewLink = placeLinks.reviewLink || placeLink;
   const blogReviewLink = placeLinks.blogReviewLink || placeLink;
+  const mobileHomeLink = placeLinks.mobileHomeLink || "";
   const photoLink = placeLink || imagePayload.link;
 
   return {
     placeLink,
     reviewLink,
     blogReviewLink,
+    mobileHomeLink,
     photoThumbnail,
     photoLink,
     blogReviewTotal,
@@ -1272,11 +1277,12 @@ function buildPlaceLinksFromToken(type, id) {
     return null;
   }
 
+  const mobileBase = `https://m.place.naver.com/${safeType}/${safeId}`;
   return {
-    placeLink: `https://map.naver.com/p/entry/place/${safeId}`,
-    reviewLink: `https://map.naver.com/p/entry/place/${safeId}/review/visitor`,
-    blogReviewLink: `https://map.naver.com/p/entry/place/${safeId}/review/ugc`,
-    mobileHomeLink: `https://m.place.naver.com/${safeType}/${safeId}/home`
+    placeLink: `${mobileBase}/home`,
+    reviewLink: `${mobileBase}/review/visitor`,
+    blogReviewLink: `${mobileBase}/review/ugc`,
+    mobileHomeLink: `${mobileBase}/home`
   };
 }
 

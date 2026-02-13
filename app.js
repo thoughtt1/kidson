@@ -388,6 +388,7 @@ function toFallbackNearbySpot(spot) {
     placeLink: spot.placeLink || "",
     reviewLink: spot.reviewLink || spot.placeLink || "",
     blogReviewLink: spot.blogReviewLink || spot.placeLink || "",
+    mobileHomeLink: spot.mobileHomeLink || "",
     photoThumbnail: spot.photoThumbnail || "",
     photoLink: spot.photoLink || "",
     blogReviewTotal: Number.isFinite(spot.blogReviewTotal) ? spot.blogReviewTotal : 0,
@@ -441,6 +442,7 @@ function toLiveSpot(item, idx, maxDistanceKm) {
     placeLink: toSafeExternalUrl(item.placeLink || item.link || ""),
     reviewLink: toSafeExternalUrl(item.reviewLink || item.placeLink || item.link || ""),
     blogReviewLink: toSafeExternalUrl(item.blogReviewLink || item.placeLink || item.link || ""),
+    mobileHomeLink: toSafeExternalUrl(item.mobileHomeLink || item.placeLink || item.link || ""),
     distanceKm: Number.isFinite(distanceKm) ? Math.round(distanceKm * 10) / 10 : null,
     photoThumbnail: toSafeImageUrl(item.photoThumbnail || ""),
     photoLink: toSafeExternalUrl(item.photoLink || ""),
@@ -1607,11 +1609,21 @@ function buildMetricLinkMarkup(href, label, className) {
 
 function buildPlaceNameMarkup(spot) {
   const name = escapeHtml(spot?.name || "");
-  const safeHref = toSafeExternalUrl(spot?.placeLink || spot?.reviewLink || spot?.blogReviewLink || "");
-  if (!safeHref) {
-    return `<p class="nearby-place-name">${name}</p>`;
-  }
+  const safeHref = toSafeExternalUrl(
+    spot?.mobileHomeLink
+    || spot?.placeLink
+    || spot?.reviewLink
+    || spot?.blogReviewLink
+    || buildNaverPlaceFallbackUrl(spot?.name || "", spot?.address || "")
+  );
   return `<a class="nearby-place-name nearby-place-name-link" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+}
+
+function buildNaverPlaceFallbackUrl(name, address = "") {
+  const query = [String(name || "").trim(), String(address || "").trim()]
+    .filter(Boolean)
+    .join(" ");
+  return `https://map.naver.com/p/search/${encodeURIComponent(query || "키즈 장소")}`;
 }
 
 function buildPlaceFeatureSummary(spot) {
